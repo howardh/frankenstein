@@ -62,7 +62,7 @@ def advantage_policy_gradient_loss(
         discounts: A tensor $[\\gamma_1,\\gamma_2,\\cdots,\\gamma_n]$ where the 1-step value estimate of $s_0$ is $r_1+\\gamma_1 V(s_1)$.
     """
     vt = n_step_value_iterative(next_state_values, rewards, terminals, discounts)
-    return -log_action_probs*(state_values-vt)*(1-prev_terminals)
+    return -log_action_probs*(vt-state_values)*prev_terminals.logical_not()
 
 def clipped_advantage_policy_gradient_loss(
         log_action_probs : TensorType['num_steps',float],
@@ -94,7 +94,7 @@ def clipped_advantage_policy_gradient_loss(
     """
     vt = n_step_value_iterative(next_state_values, rewards, terminals, discounts)
     ratio = torch.exp(log_action_probs-old_log_action_probs)
-    advantage = (state_values-vt)*prev_terminals.logical_not()
+    advantage = (vt-state_values)*prev_terminals.logical_not()
     return -torch.min(
             ratio*advantage,
             ratio.clip(1-epsilon,1+epsilon)*advantage
