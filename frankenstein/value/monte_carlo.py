@@ -1,14 +1,14 @@
 import torch
 from torchtyping import TensorType
 
-def n_step_value_iterative(
+def monte_carlo_return_iterative(
         state_values : TensorType['num_steps',float],
         rewards : TensorType['num_steps',float],
         terminals : TensorType['num_steps',bool],
         discounts : TensorType['num_steps',float]
     ) -> TensorType['num_steps',float]:
     """
-    Return the n-step value of each state. The output is computed in an interative manner, so this is less computationally efficient, but the code may be easier to understand.
+    Return the "Monte-Carlo" return of each state. The output is computed in an interative manner, so this is less computationally efficient, but the code may be easier to understand.
 
     Given a sequence of n transitions, we observe states/actions/rewards
     $$(r_0,s_0,a_0),(r_1,s_1,a_1),...,(r_n,s_n,a_n)$$
@@ -31,14 +31,14 @@ def n_step_value_iterative(
         vt[i] = rewards[i]+terminals[i].logical_not()*discounts[i]*vt[i+1]
     return vt[:-1]
 
-def n_step_value_iterative_batch(
+def monte_carlo_return_iterative_batch(
         state_values : TensorType['num_steps','batch_size',float],
         rewards : TensorType['num_steps','batch_size',float],
         terminals : TensorType['num_steps','batch_size',bool],
         discounts : TensorType['num_steps','batch_size',float],
     ) -> TensorType['num_steps','batch_size',float]:
     """
-    Return the n-step value of each state. The output is computed in an interative manner, so this is less computationally efficient, but the code may be easier to understand.
+    Return the "Monte-Carlo" return of each state. The output is computed in an interative manner, so this is less computationally efficient, but the code may be easier to understand.
 
     Given a sequence of n transitions, we observe states/actions/rewards
     $$(r_0,s_0,a_0),(r_1,s_1,a_1),...,(r_n,s_n,a_n)$$

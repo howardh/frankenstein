@@ -1,7 +1,7 @@
 from pytest import approx
 import torch
 
-from frankenstein.loss.policy_gradient import geneeralized_advantage_estimate as gae
+from frankenstein.advantage.gae import geneeralized_advantage_estimate as gae
 
 # gae lambda = 0 => 1-step advantage
 # gae lambda = 1 => n-step advantage

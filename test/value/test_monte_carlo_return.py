@@ -1,8 +1,8 @@
 from pytest import approx
 import torch
 
-from frankenstein.loss.state_value import n_step_value_iterative as state_value
-from frankenstein.loss.state_value import n_step_value_iterative_batch as state_value_batch
+from frankenstein.value.monte_carlo import monte_carlo_return_iterative as state_value
+from frankenstein.value.monte_carlo import monte_carlo_return_iterative_batch as state_value_batch
 
 # No termination
 # Same discount for all steps
