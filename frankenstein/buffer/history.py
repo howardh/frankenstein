@@ -12,25 +12,32 @@ def transpose_batch_seqlen(data):
     """ Transpose the batch size and sequence length dimensions (i.e. dimensions 0 and 1) """
     if isinstance(data,torch.Tensor):
         return data.transpose(1,0)
+    elif isinstance(data,tuple) or isinstance(data,list):
+        return tuple([
+            transpose_batch_seqlen(v)
+            for v in data
+        ])
     elif isinstance(data,Mapping):
         return {
                 k: transpose_batch_seqlen(v)
                 for k,v in data.items()
         }
+    else:
+        raise Exception(f'Unable to handle data of type {type(data)}')
 
 class HistoryBuffer(Generic[ObsType,ActionType,MiscType]):
     def __init__(self,
-            num_envs : int,
             max_len : int,
+            num_envs : int = 0,
             default_action : ActionType = None,
             batch_first : bool = False,
             device : torch.device = torch.device('cpu')
         ) -> None:
         """
         Args:
-            num_envs (int): Number of environments running concurrently.
             max_len (int): The number of transitions to store for each environment. The `HistoryBuffer` will keep a history of `max_len+1` observations.
-            default_action: ???
+            num_envs (int): Number of environments running concurrently. This can grow dynamically.
+            default_action: Action to use as padding at the end of an episode.
             batch_first (bool): If set to `True`, then all returned tensors will have the shape `(batch_size, seq_len, ...)`. Otherwise, they will take the shape `(seq_len, batch_size, ...)`. Default: `False`.
         """
         self._num_envs = num_envs
@@ -52,7 +59,19 @@ class HistoryBuffer(Generic[ObsType,ActionType,MiscType]):
         self.default_action = default_action
         self.default_reward = 0
     def __getitem__(self, index):
+        self._resize_if_needed(index)
         return HistoryBufferSlice(self, env_index=index)
+    def _resize_if_needed(self,index):
+        if index >= self._num_envs:
+            if index == self._num_envs:
+                self.obs_history.append([])
+                self.action_history.append([])
+                self.reward_history.append([])
+                self.terminal_history.append([])
+                self.misc_history.append([])
+                self._num_envs += 1
+            else:
+                raise Exception('The HistoryBuffer cannot be dynamically resized by more than one element at a time. Either access the slices in order, or predefine the number of environments appropriately with `num_envs`.')
     def append_obs(self,
             obs : ObsType,
             reward : Optional[float] = None,
@@ -62,10 +81,11 @@ class HistoryBuffer(Generic[ObsType,ActionType,MiscType]):
             ) -> None:
         # Default env_index
         if env_index is None:
-            if self._num_envs == 1:
+            if self._num_envs <= 1:
                 env_index = 0
             else:
                 raise Exception('`env_index` must be specified.')
+        self._resize_if_needed(env_index)
         # Handle boundary between episodes
         if reward is None:
             if len(self.obs_history[env_index]) != 0:
@@ -93,10 +113,11 @@ class HistoryBuffer(Generic[ObsType,ActionType,MiscType]):
     def append_action(self, action : ActionType, env_index : int = None):
         # Default env_index
         if env_index is None:
-            if self._num_envs == 1:
+            if self._num_envs <= 1:
                 env_index = 0
             else:
                 raise Exception('`env_index` must be specified.')
+        self._resize_if_needed(env_index)
         # Append action
         obs_history = self.obs_history[env_index]
         action_history = self.action_history[env_index]
@@ -132,13 +153,7 @@ class HistoryBuffer(Generic[ObsType,ActionType,MiscType]):
         return output
     @property
     def action(self) -> TensorType['seq_len','num_envs','action_shape']:
-        output = torch.stack([
-                torch.stack([
-                    a if isinstance(a,torch.Tensor) else torch.tensor(a,device=self.device)
-                    for a in a_hist
-                ])
-                for a_hist in self.action_history
-        ])
+        output = default_collate([self[i].action for i in range(self._num_envs)])
         if not self.batch_first:
             output = transpose_batch_seqlen(output)
         return output
@@ -158,7 +173,7 @@ class HistoryBufferSlice(Generic[ObsType,ActionType,MiscType]):
     def append_obs(self,
             obs : ObsType,
             reward : Optional[float] = None,
-            terminal : bool = None,
+            terminal : bool = False,
             misc : MiscType = None,
             ) -> None:
         self.buffer.append_obs(obs=obs, reward=reward, terminal=terminal, misc=misc, env_index=self.env_index)
@@ -212,10 +227,7 @@ class HistoryBufferSlice(Generic[ObsType,ActionType,MiscType]):
         ])
     @property
     def action(self) -> TensorType['seq_len','action_shape']:
-        return torch.stack([
-            a if isinstance(a,torch.Tensor) else torch.tensor(a,device=self.buffer.device)
-            for a in self.action_history
-        ])
+        return default_collate(self.action_history)
     @property
     def reward(self) -> TensorType['seq_len','num_envs',float]:
         return torch.tensor(self.buffer.reward_history[self.env_index], device=self.buffer.device)

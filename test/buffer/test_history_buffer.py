@@ -138,6 +138,52 @@ def test_clear():
     buffer[0].action_history == []
     buffer[0].terminal_history == [True]
 
+def test_dynamic_resizing():
+    buffer = Buffer(
+            num_envs=0,
+            max_len=10,
+            default_action=5,
+    )
+    for i in range(3):
+        buffer.append_obs(obs=0,env_index=i)
+        buffer.append_action(action=10,env_index=i)
+        buffer.append_obs(obs=1,reward=0,terminal=False,env_index=i)
+        buffer.append_action(action=11,env_index=i)
+        buffer.append_obs(obs=2,reward=0,terminal=True,env_index=i)
+
+        buffer[i].action == torch.tensor([10,11])
+        buffer[i].terminal == torch.tensor([False,False,True])
+
+def test_dynamic_resizing_via_slice():
+    buffer = Buffer(
+            num_envs=0,
+            max_len=10,
+            default_action=5,
+    )
+    for i in range(3):
+        buffer[i].append_obs(obs=0)
+        buffer[i].append_action(action=10)
+        buffer[i].append_obs(obs=1,reward=0,terminal=False)
+        buffer[i].append_action(action=11)
+        buffer[i].append_obs(obs=2,reward=0,terminal=True)
+
+        buffer[i].action == torch.tensor([10,11])
+        buffer[i].terminal == torch.tensor([False,False,True])
+
+def test_dynamic_resizing_more_than_1():
+    buffer = Buffer(
+            num_envs=0,
+            max_len=10,
+            default_action=5,
+    )
+
+    with pytest.raises(Exception):
+        buffer.append_obs(obs=0,env_index=1)
+
+    buffer.append_obs(obs=0,env_index=0)
+
+    with pytest.raises(Exception):
+        buffer.append_action(action=10,env_index=2)
 
 # Numpy obs, int actions, no misc
 def test_numpy_obs_int_action():
@@ -193,6 +239,31 @@ def test_torch_obs_torch_action():
                 buffer[i].action,
                 torch.tensor([[.1,.2],[.2,.3],[.3,.4]])
         ).all()
+
+def test_tuple_int_action():
+    buffer = Buffer(
+            num_envs=2,
+            max_len=3,
+    )
+    for i in range(2):
+        buffer[i].append_obs(obs=0)
+        buffer[i].append_action(action=(0,1))
+        buffer[i].append_obs(obs=0, reward=0, terminal=False)
+        buffer[i].append_action(action=(2,3))
+        buffer[i].append_obs(obs=0, reward=0, terminal=False)
+        buffer[i].append_action(action=(4,5))
+
+        assert len(buffer[i].action) == 2
+        assert buffer[i].action[0].tolist() == [0,2,4]
+        assert buffer[i].action[1].tolist() == [1,3,5]
+
+    assert len(buffer.action) == 2
+    seq_len, batch_size = buffer.action[0].shape
+    assert seq_len == 3
+    assert batch_size == 2
+    seq_len, batch_size = buffer.action[1].shape
+    assert seq_len == 3
+    assert batch_size == 2
 
 
 # Misc data
