@@ -6,7 +6,7 @@ def geneeralized_advantage_estimate(
         next_state_values : TensorType['num_steps',float],
         rewards : TensorType['num_steps',float],
         terminals : TensorType['num_steps',bool],
-        discounts : TensorType['num_steps',float],
+        discount : float,
         gae_lambda : float,
     ) -> TensorType['num_steps',float]:
     """
@@ -21,7 +21,7 @@ def geneeralized_advantage_estimate(
         next_state_values: A tensor containing $[V(s_1),V_(s_2),...,V(s_n)]$ where $V(s)$ is the estimated value of state $s$.
         rewards: A tensor containing $[r_1,r_2,...,r_n]$.
         terminals: A boolean tensor containing $[T(s_1),T(s_2),...,T(s_n)]$ where $T(s)$ is True if $s$ is a terminal state, and False otherwise.
-        discounts: A tensor $[\\gamma_1,\\gamma_2,...,\\gamma_n]$ where the 1-step value estimate of $s_0$ is $r_1+\\gamma_1 V(s_1)$.
+        discount: Discount factor.
         gae_lambda: 
     """
     device = state_values.device
@@ -29,7 +29,7 @@ def geneeralized_advantage_estimate(
     if num_steps == 0:
         return torch.tensor([],dtype=torch.float,device=device)
     adv = torch.zeros([num_steps+1],device=device)
-    delta = rewards+discounts*next_state_values*(1-terminals)-state_values
+    delta = rewards+discount*next_state_values*terminals.logical_not()-state_values
     for i in reversed(range(num_steps)):
-        adv[i] = delta[i]+(1-terminals[i])*gae_lambda*discounts[i]*adv[i+1]
+        adv[i] = delta[i]+terminals[i].logical_not()*gae_lambda*discount*adv[i+1]
     return adv[:-1]
