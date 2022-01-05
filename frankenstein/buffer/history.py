@@ -1,4 +1,4 @@
-from typing import Optional, Generic, TypeVar, Mapping
+from typing import Optional, Generic, TypeVar, Mapping, List
 
 import torch
 from torchtyping import TensorType
@@ -23,7 +23,32 @@ def transpose_batch_seqlen(data):
                 for k,v in data.items()
         }
     else:
-        raise Exception(f'Unable to handle data of type {type(data)}')
+        raise Exception(f'Unable to handle data of type {type(data)}') # pragma: no cover
+
+def to_device(data, device):
+    if isinstance(data,torch.Tensor):
+        return data.to(device)
+    elif isinstance(data,tuple) or isinstance(data,list):
+        return tuple([
+            to_device(v,device)
+            for v in data
+        ])
+    elif isinstance(data,Mapping):
+        return {
+                k: to_device(v,device)
+                for k,v in data.items()
+        }
+    else:
+        raise Exception(f'Unable to handle data of type {type(data)}') # pragma: no cover
+
+def clip_sequence(data : List[torch.Tensor]):
+    """ Clip the tensors in the provided list to the length of the shortest tensor. """
+    elem = data[0]
+    if isinstance(elem,torch.Tensor):
+        min_len = min(*[len(x) for x in data])
+        return [x[:min_len] for x in data]
+    else:
+        raise Exception(f'Unable to handle data of type {type(data)}') # pragma: no cover
 
 class HistoryBuffer(Generic[ObsType,ActionType,MiscType]):
     def __init__(self,
@@ -58,6 +83,8 @@ class HistoryBuffer(Generic[ObsType,ActionType,MiscType]):
 
         self.default_action = default_action
         self.default_reward = 0
+
+        self._terminated_eps = False
     def __getitem__(self, index):
         self._resize_if_needed(index)
         return HistoryBufferSlice(self, env_index=index)
@@ -88,10 +115,6 @@ class HistoryBuffer(Generic[ObsType,ActionType,MiscType]):
         self._resize_if_needed(env_index)
         # Handle boundary between episodes
         if reward is None:
-            if len(self.obs_history[env_index]) != 0:
-                # The last episode just finished, so we receive a new observation to start the episode without an action in between.
-                # Add an action to pad the actions list.
-                self.append_action(self.default_action, env_index)
             reward = self.default_reward
 
         # Make sure the observations and actions are in sync
@@ -102,6 +125,11 @@ class HistoryBuffer(Generic[ObsType,ActionType,MiscType]):
         self.reward_history[env_index].append(reward)
         self.terminal_history[env_index].append(terminal)
         self.misc_history[env_index].append(misc)
+
+        if terminal:
+            # The last episode just finished, so we receive a new observation to start the episode without an action in between.
+            # Add an action to pad the actions list.
+            self.append_action(self.default_action, env_index)
 
         # Enforce max length
         if self.max_len is not None and len(self.obs_history[env_index]) > self.max_len+1:
@@ -153,7 +181,10 @@ class HistoryBuffer(Generic[ObsType,ActionType,MiscType]):
         return output
     @property
     def action(self) -> TensorType['seq_len','num_envs','action_shape']:
-        output = default_collate([self[i].action for i in range(self._num_envs)])
+        try:
+            output = default_collate([self[i].action for i in range(self._num_envs)])
+        except: # FIXME: hacky
+            output = default_collate(clip_sequence([self[i].action for i in range(self._num_envs)]))
         if not self.batch_first:
             output = transpose_batch_seqlen(output)
         return output
@@ -227,7 +258,7 @@ class HistoryBufferSlice(Generic[ObsType,ActionType,MiscType]):
         ])
     @property
     def action(self) -> TensorType['seq_len','action_shape']:
-        return default_collate(self.action_history)
+        return to_device(default_collate(self.action_history),self.buffer.device)
     @property
     def reward(self) -> TensorType['seq_len','num_envs',float]:
         return torch.tensor(self.buffer.reward_history[self.env_index], device=self.buffer.device)
@@ -236,7 +267,7 @@ class HistoryBufferSlice(Generic[ObsType,ActionType,MiscType]):
         return torch.tensor(self.buffer.terminal_history[self.env_index], device=self.buffer.device)
     @property
     def misc(self):
-        return default_collate(self.misc_history)
+        return to_device(default_collate(self.misc_history),self.buffer.device)
 
 class VecHistoryBuffer:
     def __init__(self) -> None:

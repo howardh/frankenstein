@@ -77,7 +77,7 @@ def test_episode_termination():
     buffer.append_action(action=11)
     buffer.append_obs(obs=2,reward=0,terminal=True)
 
-    buffer[0].action == torch.tensor([10,11,5,10,11])
+    buffer[0].action == torch.tensor([10,11,5,10,11,5])
     buffer[0].terminal == torch.tensor([False,False,True,False,False,True])
 
 def test_exceed_max_len():
@@ -149,10 +149,10 @@ def test_dynamic_resizing():
         buffer.append_action(action=10,env_index=i)
         buffer.append_obs(obs=1,reward=0,terminal=False,env_index=i)
         buffer.append_action(action=11,env_index=i)
-        buffer.append_obs(obs=2,reward=0,terminal=True,env_index=i)
+        buffer.append_obs(obs=2,reward=0,terminal=False,env_index=i)
 
         buffer[i].action == torch.tensor([10,11])
-        buffer[i].terminal == torch.tensor([False,False,True])
+        buffer[i].terminal == torch.tensor([False,False,False])
 
 def test_dynamic_resizing_via_slice():
     buffer = Buffer(
@@ -165,10 +165,10 @@ def test_dynamic_resizing_via_slice():
         buffer[i].append_action(action=10)
         buffer[i].append_obs(obs=1,reward=0,terminal=False)
         buffer[i].append_action(action=11)
-        buffer[i].append_obs(obs=2,reward=0,terminal=True)
+        buffer[i].append_obs(obs=2,reward=0,terminal=False)
 
         buffer[i].action == torch.tensor([10,11])
-        buffer[i].terminal == torch.tensor([False,False,True])
+        buffer[i].terminal == torch.tensor([False,False,False])
 
 def test_dynamic_resizing_more_than_1():
     buffer = Buffer(
@@ -184,6 +184,32 @@ def test_dynamic_resizing_more_than_1():
 
     with pytest.raises(Exception):
         buffer.append_action(action=10,env_index=2)
+
+def test_action_padding():
+    buffer = Buffer(
+            num_envs=2,
+            max_len=10,
+            default_action=5,
+    )
+    buffer[0].append_obs(obs=0)
+    buffer[0].append_action(action=0)
+    buffer[0].append_obs(obs=0,reward=0,terminal=True)
+
+    buffer[1].append_obs(obs=0)
+    buffer[1].append_action(action=0)
+    buffer[1].append_obs(obs=0,reward=0,terminal=False)
+
+    # If no action has been added to the non-terminating sequences, then no action should be added to the terminating sequence
+    seq_len, batch_size = buffer.action.shape
+    assert seq_len == 1
+    assert batch_size == 2
+
+    # If an action has been added to the non-terminating sequences, then padding should be added to the terminating sequence
+    buffer[1].append_action(action=0)
+
+    seq_len, batch_size = buffer.action.shape
+    assert seq_len == 2
+    assert batch_size == 2
 
 # Numpy obs, int actions, no misc
 def test_numpy_obs_int_action():
@@ -278,6 +304,7 @@ def test_misc_int():
     buffer.append_action(action=0)
     buffer.append_obs(obs=0, reward=0, terminal=False, misc=2)
 
+    assert isinstance(buffer[0].misc, torch.Tensor)
     seq_len = buffer[0].misc.shape[0]
     assert seq_len == 3
     assert buffer[0].misc.tolist() == [0,1,2]

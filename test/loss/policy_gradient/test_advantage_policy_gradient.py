@@ -2,6 +2,7 @@ from pytest import approx
 import torch
 
 from frankenstein.loss.policy_gradient import advantage_policy_gradient_loss as loss
+from frankenstein.loss.policy_gradient import advantage_policy_gradient_loss_batch as loss_batch
 
 def test_0_steps():
     output = loss(
@@ -126,3 +127,33 @@ def test_training():
         optimizer.step()
     # The probability for the good action should be higher than that of the bad action
     assert policy_weights[1] > policy_weights[0]
+
+# Make sure the batch version behaves the same as the non-batched version
+def test_batch_matches_non_batched():
+    num_steps = 5
+    batch_size = 10
+    log_action_probs = torch.rand([num_steps,batch_size]).log_softmax(1)
+    state_values = torch.rand([num_steps+1,batch_size])
+    rewards = torch.rand([num_steps,batch_size])
+    terminals = (torch.rand([num_steps+1,batch_size])*2).floor().bool()
+    discounts = torch.rand([num_steps,batch_size])
+    output_batch = loss_batch(
+            log_action_probs=log_action_probs,
+            state_values = state_values[:-1,:],
+            next_state_values = state_values[1:,:],
+            rewards = rewards,
+            terminals = terminals[1:,:],
+            prev_terminals = terminals[:-1,:],
+            discounts = discounts,
+    )
+    for i in range(batch_size):
+        output = loss(
+                log_action_probs=log_action_probs[:,i],
+                state_values = state_values[:-1,i],
+                next_state_values = state_values[1:,i],
+                rewards = rewards[:,i],
+                terminals = terminals[1:,i],
+                prev_terminals = terminals[:-1,i],
+                discounts = discounts[:,i],
+        )
+        assert torch.isclose(output, output_batch[:,i]).all()
