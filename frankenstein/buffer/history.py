@@ -269,6 +269,3 @@ class HistoryBufferSlice(Generic[ObsType,ActionType,MiscType]):
     def misc(self):
         return to_device(default_collate(self.misc_history),self.buffer.device)
 
-class VecHistoryBuffer:
-    def __init__(self) -> None:
-        raise NotImplementedError() # pragma: no cover
