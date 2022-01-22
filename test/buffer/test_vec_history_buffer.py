@@ -320,3 +320,55 @@ def test_misc_nested_dict():
     assert isinstance(buffer.misc['bar'], dict)
     assert buffer.misc['bar']['a'].tolist() == [[.1],[.3],[.5]]
     assert buffer.misc['bar']['b'].tolist() == [[.2],[.4],[.6]]
+
+def test_misc_dict_of_tensors():
+    """
+    If we already have the misc data in batched form, then we would want to pass that data to the `VecHistoryBuffer` in the same form.
+    """
+    buffer = Buffer(
+            num_envs=1,
+            max_len=3,
+    )
+
+    buffer.append_obs(obs=np.array([0]), misc={'foo':torch.tensor([0])})
+    buffer.append_action(action=np.array([0]))
+    buffer.append_obs(
+            obs=np.array([0]), reward=np.array([0]),
+            terminal=np.array([False]), misc={'foo':torch.tensor([1])})
+    buffer.append_action(action=np.array([0]))
+    buffer.append_obs(
+            obs=np.array([0]), reward=np.array([0]),
+            terminal=np.array([False]), misc={'foo':torch.tensor([2])})
+
+    assert isinstance(buffer.misc, dict)
+    assert 'foo' in buffer.misc
+    seq_len, batch_size = buffer.misc['foo'].shape
+    assert seq_len == 3
+    assert batch_size == 1
+    assert (buffer.misc['foo'] == torch.tensor([[0],[1],[2]])).all()
+
+def test_misc_dict_of_tensors_2_envs():
+    """
+    If we already have the misc data in batched form, then we would want to pass that data to the `VecHistoryBuffer` in the same form.
+    """
+    buffer = Buffer(
+            num_envs=2,
+            max_len=3,
+    )
+
+    buffer.append_obs(obs=np.array([0]), misc={'foo':torch.tensor([0,1])})
+    buffer.append_action(action=np.array([0]))
+    buffer.append_obs(
+            obs=np.array([0]), reward=np.array([0]),
+            terminal=np.array([False]), misc={'foo':torch.tensor([1,2])})
+    buffer.append_action(action=np.array([0]))
+    buffer.append_obs(
+            obs=np.array([0]), reward=np.array([0]),
+            terminal=np.array([False]), misc={'foo':torch.tensor([2,3])})
+
+    assert isinstance(buffer.misc, dict)
+    assert 'foo' in buffer.misc
+    seq_len, batch_size = buffer.misc['foo'].shape
+    assert seq_len == 3
+    assert batch_size == 2
+    assert (buffer.misc['foo'] == torch.tensor([[0,1],[1,2],[2,3]])).all()

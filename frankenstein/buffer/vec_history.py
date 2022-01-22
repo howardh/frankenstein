@@ -102,6 +102,10 @@ class VecHistoryBuffer(Generic[ObsType,ActionType,MiscType]):
         ], dim=0)
     @property
     def misc(self):
-        output = default_collate([default_collate(x) for x in self.misc_history])
+        elem = self.misc_history[0]
+        if isinstance(elem, dict):
+            output = default_collate(self.misc_history)
+        else:
+            output = default_collate([default_collate(x) for x in self.misc_history])
         output = to_device(output, self.device)
         return output
