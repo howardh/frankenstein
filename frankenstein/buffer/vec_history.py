@@ -11,12 +11,13 @@ ObsType = TypeVar('ObsType')
 ActionType = TypeVar('ActionType')
 MiscType = TypeVar('MiscType')
 
-class VecHistoryBuffer(Generic[ObsType,ActionType,MiscType]):
+
+class VecHistoryBuffer(Generic[ObsType, ActionType, MiscType]):
     def __init__(self,
-            max_len : int,
-            num_envs : int = 0,
-            device : torch.device = torch.device('cpu')
-        ) -> None:
+                 max_len: int,
+                 num_envs: int = 0,
+                 device: torch.device = torch.device('cpu')
+                 ) -> None:
         self._num_envs = num_envs
         self.device = device
         self.max_len = max_len
@@ -34,11 +35,11 @@ class VecHistoryBuffer(Generic[ObsType,ActionType,MiscType]):
         self.default_reward = np.array([0]*num_envs)
 
     def append_obs(self,
-            obs : ObsType,
-            reward : Optional[np.ndarray] = None,
-            terminal : np.ndarray = None,
-            misc : MiscType = None,
-            ) -> None:
+                   obs: ObsType,
+                   reward: Optional[np.ndarray] = None,
+                   terminal: np.ndarray = None,
+                   misc: MiscType = None,
+                   ) -> None:
         # Handle boundary between episodes
         if reward is None:
             reward = self.default_reward
@@ -61,12 +62,14 @@ class VecHistoryBuffer(Generic[ObsType,ActionType,MiscType]):
             self.terminal_history = self.terminal_history[1:]
             self.action_history = self.action_history[1:]
             self.misc_history = self.misc_history[1:]
-    def append_action(self, action : ActionType):
+
+    def append_action(self, action: ActionType):
         # Append action
         obs_history = self.obs_history
         action_history = self.action_history
         assert len(obs_history) == len(action_history)+1
         action_history.append(action)
+
     def clear(self):
         i = len(self.obs_history)-1
         self.obs_history = self.obs_history[i:]
@@ -76,30 +79,34 @@ class VecHistoryBuffer(Generic[ObsType,ActionType,MiscType]):
         self.misc_history = self.misc_history[i:]
 
     @property
-    def obs(self) -> TensorType['seq_len','num_envs','obs_shape']:
+    def obs(self) -> TensorType['seq_len', 'num_envs', 'obs_shape']:
         output = torch.stack([
-            torch.tensor(x,device=self.device) for x in self.obs_history
+            torch.tensor(x, device=self.device) for x in self.obs_history
         ], dim=0,)
         return output
+
     @property
-    def reward(self) -> TensorType['seq_len','num_envs',float]:
+    def reward(self) -> TensorType['seq_len', 'num_envs', float]:
         output = torch.stack([
-            torch.tensor(x,device=self.device) for x in self.reward_history
+            torch.tensor(x, device=self.device) for x in self.reward_history
         ], dim=0)
         return output
+
     @property
-    def terminal(self) -> TensorType['seq_len','num_envs',bool]:
+    def terminal(self) -> TensorType['seq_len', 'num_envs', bool]:
         output = torch.stack([
-            torch.tensor(x,device=self.device) for x in self.terminal_history
+            torch.tensor(x, device=self.device) for x in self.terminal_history
         ], dim=0)
         return output
+
     @property
-    def action(self) -> TensorType['seq_len','num_envs','action_shape']:
+    def action(self) -> TensorType['seq_len', 'num_envs', 'action_shape']:
         if len(self.action_history) == 0:
             return torch.zeros(0, self._num_envs, 0, device=self.device)
         return torch.stack([
-            torch.tensor(x,device=self.device) for x in self.action_history
+            torch.tensor(x, device=self.device) for x in self.action_history
         ], dim=0)
+
     @property
     def misc(self):
         elem = self.misc_history[0]

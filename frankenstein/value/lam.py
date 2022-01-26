@@ -3,13 +3,14 @@ from torchtyping import TensorType
 
 from frankenstein.value.n_step import n_step_return_iterative
 
+
 def lambda_return_iterative(
-        next_state_values : TensorType['num_steps',float],
-        rewards : TensorType['num_steps',float],
-        terminals : TensorType['num_steps',bool],
-        discount: float,
-        lam : float,
-    ) -> TensorType['num_steps',float]:
+    next_state_values: TensorType['num_steps', float],
+    rewards: TensorType['num_steps', float],
+    terminals: TensorType['num_steps', bool],
+    discount: float,
+    lam: float,
+) -> TensorType['num_steps', float]:
     """
     Return the truncated $\\lambda$ return of each state.
     The output is computed in an interative manner, so this is less computationally efficient, but the code may be easier to understand.
@@ -31,13 +32,13 @@ def lambda_return_iterative(
     """
     device = next_state_values.device
     num_steps = next_state_values.shape[0]
-    output = torch.zeros([num_steps],device=device)
+    output = torch.zeros([num_steps], device=device)
     n_step_returns = [n_step_return_iterative(
-            next_state_values=next_state_values,
-            rewards=rewards,
-            terminals=terminals,
-            discount=discount,
-            n = n+1
+        next_state_values=next_state_values,
+        rewards=rewards,
+        terminals=terminals,
+        discount=discount,
+        n=n+1
     ) for n in range(num_steps)]
     for i in range(num_steps):
         for j in range(num_steps-i-1):

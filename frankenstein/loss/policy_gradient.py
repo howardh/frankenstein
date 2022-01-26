@@ -3,15 +3,16 @@ from torchtyping import TensorType
 
 from frankenstein.value.monte_carlo import monte_carlo_return_iterative, monte_carlo_return_iterative_batch
 
+
 def advantage_policy_gradient_loss(
-        log_action_probs : TensorType['num_steps',float],
-        state_values : TensorType['num_steps',float],
-        next_state_values : TensorType['num_steps',float],
-        rewards : TensorType['num_steps',float],
-        terminals : TensorType['num_steps',bool],
-        prev_terminals : TensorType['num_steps',bool],
-        discounts : TensorType['num_steps',float],
-    ) -> TensorType['num_steps',float]:
+    log_action_probs: TensorType['num_steps', float],
+    state_values: TensorType['num_steps', float],
+    next_state_values: TensorType['num_steps', float],
+    rewards: TensorType['num_steps', float],
+    terminals: TensorType['num_steps', bool],
+    prev_terminals: TensorType['num_steps', bool],
+    discounts: TensorType['num_steps', float],
+) -> TensorType['num_steps', float]:
     """
     Advantage policy gradient.
 
@@ -31,15 +32,16 @@ def advantage_policy_gradient_loss(
     vt = monte_carlo_return_iterative(next_state_values, rewards, terminals, discounts)
     return -log_action_probs*(vt-state_values)*prev_terminals.logical_not()
 
+
 def advantage_policy_gradient_loss_batch(
-        log_action_probs : TensorType['num_steps','batch_size',float],
-        state_values : TensorType['num_steps','batch_size',float],
-        next_state_values : TensorType['num_steps','batch_size',float],
-        rewards : TensorType['num_steps','batch_size',float],
-        terminals : TensorType['num_steps','batch_size',bool],
-        prev_terminals : TensorType['num_steps','batch_size',bool],
-        discounts : TensorType['num_steps','batch_size',float],
-    ) -> TensorType['num_steps',float]:
+    log_action_probs: TensorType['num_steps', 'batch_size', float],
+    state_values: TensorType['num_steps', 'batch_size', float],
+    next_state_values: TensorType['num_steps', 'batch_size', float],
+    rewards: TensorType['num_steps', 'batch_size', float],
+    terminals: TensorType['num_steps', 'batch_size', bool],
+    prev_terminals: TensorType['num_steps', 'batch_size', bool],
+    discounts: TensorType['num_steps', 'batch_size', float],
+) -> TensorType['num_steps', float]:
     """
     Advantage policy gradient.
 
@@ -59,17 +61,18 @@ def advantage_policy_gradient_loss_batch(
     vt = monte_carlo_return_iterative_batch(next_state_values, rewards, terminals, discounts)
     return -log_action_probs*(vt-state_values)*prev_terminals.logical_not()
 
+
 def clipped_advantage_policy_gradient_loss(
-        log_action_probs : TensorType['num_steps',float],
-        old_log_action_probs : TensorType['num_steps',float],
-        state_values : TensorType['num_steps',float],
-        next_state_values : TensorType['num_steps',float],
-        rewards : TensorType['num_steps',float],
-        terminals : TensorType['num_steps',bool],
-        prev_terminals : TensorType['num_steps',bool],
-        discounts : TensorType['num_steps',float],
-        epsilon : float,
-    ) -> TensorType['num_steps',float]:
+    log_action_probs: TensorType['num_steps', float],
+    old_log_action_probs: TensorType['num_steps', float],
+    state_values: TensorType['num_steps', float],
+    next_state_values: TensorType['num_steps', float],
+    rewards: TensorType['num_steps', float],
+    terminals: TensorType['num_steps', bool],
+    prev_terminals: TensorType['num_steps', bool],
+    discounts: TensorType['num_steps', float],
+    epsilon: float,
+) -> TensorType['num_steps', float]:
     """
     Clipped advantage policy gradient (See equation 7 of https://arxiv.org/pdf/1707.06347.pdf).
 
@@ -88,9 +91,9 @@ def clipped_advantage_policy_gradient_loss(
         discounts: A tensor $[\\gamma_1,\\gamma_2,\\cdots,\\gamma_n]$ where the 1-step value estimate of $s_0$ is $r_1+\\gamma_1 V(s_1)$.
     """
     vt = monte_carlo_return_iterative(next_state_values, rewards, terminals, discounts)
-    ratio = torch.exp(log_action_probs-old_log_action_probs)
-    advantage = (vt-state_values)*prev_terminals.logical_not()
+    ratio = torch.exp(log_action_probs - old_log_action_probs)
+    advantage = (vt - state_values) * prev_terminals.logical_not()
     return -torch.min(
-            ratio*advantage,
-            ratio.clip(1-epsilon,1+epsilon)*advantage
+        ratio * advantage,
+        ratio.clip(1-epsilon, 1+epsilon) * advantage
     )

@@ -1,14 +1,15 @@
 import torch
 from torchtyping import TensorType
 
+
 def geneeralized_advantage_estimate(
-        state_values : TensorType['num_steps',float],
-        next_state_values : TensorType['num_steps',float],
-        rewards : TensorType['num_steps',float],
-        terminals : TensorType['num_steps',bool],
-        discount : float,
-        gae_lambda : float,
-    ) -> TensorType['num_steps',float]:
+        state_values: TensorType['num_steps', float],
+        next_state_values: TensorType['num_steps', float],
+        rewards: TensorType['num_steps', float],
+        terminals: TensorType['num_steps', bool],
+        discount: float,
+        gae_lambda: float,
+) -> TensorType['num_steps', float]:
     """
     Return the n-step value of each state.
 
@@ -22,13 +23,13 @@ def geneeralized_advantage_estimate(
         rewards: A tensor containing $[r_1,r_2,...,r_n]$.
         terminals: A boolean tensor containing $[T(s_1),T(s_2),...,T(s_n)]$ where $T(s)$ is True if $s$ is a terminal state, and False otherwise.
         discount: Discount factor.
-        gae_lambda: 
+        gae_lambda: ...
     """
     device = state_values.device
     num_steps = state_values.shape[0]
     if num_steps == 0:
-        return torch.tensor([],dtype=torch.float,device=device)
-    adv = torch.zeros([num_steps+1],device=device)
+        return torch.tensor([], dtype=torch.float, device=device)
+    adv = torch.zeros([num_steps+1], device=device)
     delta = rewards+discount*next_state_values*terminals.logical_not()-state_values
     for i in reversed(range(num_steps)):
         adv[i] = delta[i]+terminals[i].logical_not()*gae_lambda*discount*adv[i+1]

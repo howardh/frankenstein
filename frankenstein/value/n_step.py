@@ -1,13 +1,14 @@
 import torch
 from torchtyping import TensorType
 
+
 def n_step_return_iterative(
-        next_state_values : TensorType['num_steps',float],
-        rewards : TensorType['num_steps',float],
-        terminals : TensorType['num_steps',bool],
-        discount: float,
-        n : int,
-    ) -> TensorType['num_steps',float]:
+    next_state_values: TensorType['num_steps', float],
+    rewards: TensorType['num_steps', float],
+    terminals: TensorType['num_steps', bool],
+    discount: float,
+    n: int,
+) -> TensorType['num_steps', float]:
     """
     Return the $n$-step return of each state.
     The output is computed in an interative manner, so this is less computationally efficient, but the code may be easier to understand.
@@ -30,14 +31,14 @@ def n_step_return_iterative(
 
     device = next_state_values.device
     num_steps = next_state_values.shape[0]
-    output = torch.zeros([num_steps-n+1],device=device)
+    output = torch.zeros([num_steps-n+1], device=device)
     for i in range(num_steps-n+1):
         ret = 0.
-        for j in range(i,i+n):
+        for j in range(i, i+n):
             ret += (discount**(j-i))*rewards[j]
             if terminals[j]:
                 break
-        else: # If we finish the loop and didn't break out
+        else:  # If we finish the loop and didn't break out
             ret += (discount**n)*next_state_values[i+n-1]
         output[i] = ret
     return output

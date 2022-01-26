@@ -1,12 +1,13 @@
 import torch
 from torchtyping import TensorType
 
+
 def monte_carlo_return_iterative(
-        state_values : TensorType['num_steps',float],
-        rewards : TensorType['num_steps',float],
-        terminals : TensorType['num_steps',bool],
-        discounts : TensorType['num_steps',float]
-    ) -> TensorType['num_steps',float]:
+    state_values: TensorType['num_steps', float],
+    rewards: TensorType['num_steps', float],
+    terminals: TensorType['num_steps', bool],
+    discounts: TensorType['num_steps', float]
+) -> TensorType['num_steps', float]:
     """
     Return the "Monte-Carlo" return of each state. The output is computed in an interative manner, so this is less computationally efficient, but the code may be easier to understand.
 
@@ -23,20 +24,21 @@ def monte_carlo_return_iterative(
     device = state_values.device
     num_steps = state_values.shape[0]
     if num_steps == 0:
-        return torch.tensor([],dtype=torch.float,device=device)
-    vt = torch.zeros([num_steps+1],device=device)
+        return torch.tensor([], dtype=torch.float, device=device)
+    vt = torch.zeros([num_steps+1], device=device)
     if not terminals[-1]:
         vt[-1] = state_values[-1].item()
     for i in reversed(range(len(state_values))):
         vt[i] = rewards[i]+terminals[i].logical_not()*discounts[i]*vt[i+1]
     return vt[:-1]
 
+
 def monte_carlo_return_iterative_batch(
-        state_values : TensorType['num_steps','batch_size',float],
-        rewards : TensorType['num_steps','batch_size',float],
-        terminals : TensorType['num_steps','batch_size',bool],
-        discounts : TensorType['num_steps','batch_size',float],
-    ) -> TensorType['num_steps','batch_size',float]:
+    state_values: TensorType['num_steps', 'batch_size', float],
+    rewards: TensorType['num_steps', 'batch_size', float],
+    terminals: TensorType['num_steps', 'batch_size', bool],
+    discounts: TensorType['num_steps', 'batch_size', float],
+) -> TensorType['num_steps', 'batch_size', float]:
     """
     Return the "Monte-Carlo" return of each state. The output is computed in an interative manner, so this is less computationally efficient, but the code may be easier to understand.
 
@@ -53,10 +55,10 @@ def monte_carlo_return_iterative_batch(
     device = state_values.device
     num_steps = state_values.shape[0]
     if num_steps == 0:
-        return torch.empty_like(state_values,dtype=torch.float,device=device)
+        return torch.empty_like(state_values, dtype=torch.float, device=device)
     batch_size = state_values.shape[1]
-    vt = torch.zeros([num_steps+1,batch_size],device=device)
-    vt[-1,:] = terminals[-1,:].logical_not()*state_values[-1,:]
+    vt = torch.zeros([num_steps+1, batch_size], device=device)
+    vt[-1, :] = terminals[-1, :].logical_not()*state_values[-1, :]
     for i in reversed(range(len(state_values))):
-        vt[i,:] = rewards[i,:]+terminals[i,:].logical_not()*discounts[i,:]*vt[i+1,:]
-    return vt[:-1,:]
+        vt[i, :] = rewards[i, :]+terminals[i, :].logical_not()*discounts[i, :]*vt[i+1, :]
+    return vt[:-1, :]
