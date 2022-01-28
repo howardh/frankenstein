@@ -131,8 +131,39 @@ def test_clear():
     buffer.terminal == torch.tensor([[True]])
     buffer.reward == torch.tensor([[0]])
 
-# Numpy obs, int actions, no misc
 
+def test_full_clear():
+    buffer = Buffer(
+        num_envs=1,
+        max_len=10,
+    )
+    buffer.append_obs(obs=np.array([0]))
+    buffer.append_action(action=np.array([10]))
+    buffer.append_obs(obs=np.array([1]), reward=np.array([0]), terminal=np.array([False]))
+    buffer.append_action(action=np.array([11]))
+    buffer.append_obs(obs=np.array([2]), reward=np.array([0]), terminal=np.array([True]))
+    buffer.append_action(action=np.array([5]))
+    buffer.append_obs(obs=np.array([0]))
+    buffer.append_action(action=np.array([10]))
+    buffer.append_obs(obs=np.array([1]), reward=np.array([0]), terminal=np.array([False]))
+    buffer.append_action(action=np.array([11]))
+    buffer.append_obs(obs=np.array([2]), reward=np.array([0]), terminal=np.array([True]))
+
+    buffer.obs == torch.tensor([[0], [1], [2], [0], [1], [2]])
+    buffer.action == torch.tensor([[10], [11], [5], [10], [11]])
+    buffer.terminal == torch.tensor([[False], [False], [True], [False], [False], [True]])
+    buffer.reward == torch.tensor([[0], [0], [0], [0], [0], [0]])
+
+    buffer.clear(fullclear=True)
+
+    assert buffer.obs_history == []
+    assert buffer.action_history == []
+    assert buffer.reward_history == []
+    assert buffer.terminal_history == []
+    assert buffer.misc_history == []
+
+
+# Numpy obs, int actions, no misc
 
 def test_numpy_obs_int_action():
     buffer = Buffer(
@@ -207,8 +238,8 @@ def test_torch_obs_torch_action():
         torch.tensor([[.1, .2], [.2, .3], [.3, .4]])
     ).all()
 
-# Misc data
 
+# Misc data
 
 def test_misc_list_of_int():
     buffer = Buffer(

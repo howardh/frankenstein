@@ -70,13 +70,26 @@ class VecHistoryBuffer(Generic[ObsType, ActionType, MiscType]):
         assert len(obs_history) == len(action_history)+1
         action_history.append(action)
 
-    def clear(self):
-        i = len(self.obs_history)-1
-        self.obs_history = self.obs_history[i:]
-        self.reward_history = self.reward_history[i:]
-        self.terminal_history = self.terminal_history[i:]
-        self.action_history = self.action_history[i:]
-        self.misc_history = self.misc_history[i:]
+    def clear(self, fullclear: bool = False) -> None:
+        """
+        Clear the history buffer.
+
+        Args:
+            fullclear: If `True`, clear everything. Otherwise, keep the last element in the buffer. defaults to `False`.
+        """
+        if fullclear:
+            self.obs_history = []
+            self.action_history = []
+            self.reward_history = []
+            self.terminal_history = []
+            self.misc_history = []
+        else:
+            i = len(self.obs_history)-1
+            self.obs_history = self.obs_history[i:]
+            self.reward_history = self.reward_history[i:]
+            self.terminal_history = self.terminal_history[i:]
+            self.action_history = self.action_history[i:]
+            self.misc_history = self.misc_history[i:]
 
     @property
     def obs(self) -> TensorType['seq_len', 'num_envs', 'obs_shape']:
