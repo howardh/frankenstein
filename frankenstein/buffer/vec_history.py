@@ -15,7 +15,7 @@ MiscType = TypeVar('MiscType')
 class VecHistoryBuffer(Generic[ObsType, ActionType, MiscType]):
     def __init__(self,
                  max_len: int,
-                 num_envs: int = 0,
+                 num_envs: int,
                  device: torch.device = torch.device('cpu')
                  ) -> None:
         self._num_envs = num_envs
@@ -25,6 +25,8 @@ class VecHistoryBuffer(Generic[ObsType, ActionType, MiscType]):
         # Validate input
         if max_len < 1:
             raise ValueError('`max_len` must be at least 1')
+        if num_envs < 1:
+            raise ValueError('`num_envs` must be at least 1')
 
         self.obs_history = []
         self.action_history = []
