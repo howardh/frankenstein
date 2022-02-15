@@ -163,7 +163,7 @@ def test_full_clear():
     assert buffer.misc_history == []
 
 
-# Numpy obs, int actions, no misc
+# Testing various data types
 
 def test_numpy_obs_int_action():
     buffer = Buffer(
@@ -235,6 +235,39 @@ def test_torch_obs_torch_action():
     assert (buffer.obs[:, 1, :] == torch.tensor([[1, 2, 3], [2, 3, 4], [3, 4, 5]])).all()
     assert torch.isclose(
         buffer.action[:, 1],
+        torch.tensor([[.1, .2], [.2, .3], [.3, .4]])
+    ).all()
+
+
+def test_torch_obs_torch_tuple_action():
+    buffer = Buffer(
+        num_envs=2,
+        max_len=3,
+    )
+
+    buffer.append_obs(obs=torch.tensor([[1, 2, 3], [1, 2, 3]]))
+    buffer.append_action(
+            action=(torch.tensor([0.1, 0.2]), torch.tensor([0.1, 0.2]))
+    )
+    buffer.append_obs(
+        obs=torch.tensor([[1, 2, 3], [1, 2, 3]])+1, reward=np.array([0, 0]), terminal=np.array([False, False]))
+    buffer.append_action(
+            action=(torch.tensor([0.2, 0.3]), torch.tensor([0.2, 0.3]))
+    )
+    buffer.append_obs(
+        obs=torch.tensor([[1, 2, 3], [1, 2, 3]])+2, reward=np.array([0, 0]), terminal=np.array([False, False]))
+    buffer.append_action(
+            action=(torch.tensor([0.3, 0.4]), torch.tensor([0.3, 0.4]))
+    )
+
+    assert (buffer.obs[:, 0, :] == torch.tensor([[1, 2, 3], [2, 3, 4], [3, 4, 5]])).all()
+    assert torch.isclose(
+        buffer.action[0],
+        torch.tensor([[.1, .2], [.2, .3], [.3, .4]])
+    ).all()
+    assert (buffer.obs[:, 1, :] == torch.tensor([[1, 2, 3], [2, 3, 4], [3, 4, 5]])).all()
+    assert torch.isclose(
+        buffer.action[1],
         torch.tensor([[.1, .2], [.2, .3], [.3, .4]])
     ).all()
 

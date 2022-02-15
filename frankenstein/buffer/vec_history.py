@@ -116,9 +116,7 @@ class VecHistoryBuffer(Generic[ObsType, ActionType, MiscType]):
     def action(self) -> TensorType['seq_len', 'num_envs', 'action_shape']:
         if len(self.action_history) == 0:
             return torch.zeros(0, self._num_envs, 0, device=self.device)
-        return torch.stack([
-            torch.tensor(x, device=self.device) for x in self.action_history
-        ], dim=0)
+        return default_collate(self.action_history)
 
     @property
     def misc(self):
