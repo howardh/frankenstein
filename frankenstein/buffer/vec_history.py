@@ -96,7 +96,8 @@ class VecHistoryBuffer(Generic[ObsType, ActionType, MiscType]):
     @property
     def obs(self) -> TensorType['seq_len', 'num_envs', 'obs_shape']:
         output = torch.stack([
-            torch.tensor(x, device=self.device) for x in self.obs_history
+            x if isinstance(x, torch.Tensor) else torch.tensor(x, device=self.device)
+            for x in self.obs_history
         ], dim=0,)
         return output
 

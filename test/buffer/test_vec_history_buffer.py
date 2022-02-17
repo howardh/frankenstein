@@ -13,6 +13,14 @@ def test_max_len_0():
         )
 
 
+def test_num_envs_0():
+    with pytest.raises(Exception):
+        Buffer(
+            num_envs=0,
+            max_len=1,
+        )
+
+
 def test_1_env():
     buffer = Buffer(
         num_envs=1,
