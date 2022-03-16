@@ -1,4 +1,4 @@
-from typing import Optional, Generic, TypeVar
+from typing import Optional, Generic, TypeVar, Mapping
 
 import numpy as np
 import torch
@@ -95,10 +95,8 @@ class VecHistoryBuffer(Generic[ObsType, ActionType, MiscType]):
 
     @property
     def obs(self) -> TensorType['seq_len', 'num_envs', 'obs_shape']:
-        output = torch.stack([
-            x if isinstance(x, torch.Tensor) else torch.tensor(x, device=self.device)
-            for x in self.obs_history
-        ], dim=0,)
+        output = default_collate(self.obs_history)
+        output = to_device(output, self.device)
         return output
 
     @property
@@ -126,7 +124,7 @@ class VecHistoryBuffer(Generic[ObsType, ActionType, MiscType]):
     @property
     def misc(self):
         elem = self.misc_history[0]
-        if isinstance(elem, dict):
+        if isinstance(elem, Mapping):
             output = default_collate(self.misc_history)
         else:
             output = default_collate([default_collate(x) for x in self.misc_history])

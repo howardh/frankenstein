@@ -280,6 +280,25 @@ def test_torch_obs_torch_tuple_action():
     ).all()
 
 
+def test_dict_obs_dict_action():
+    buffer = Buffer(
+        num_envs=2,
+        max_len=3,
+    )
+
+    buffer.append_obs(obs={'obs': np.array([[1, 2, 3], [1, 2, 3]])})
+    buffer.append_action(action={'a': np.array([0, 0])})
+    buffer.append_obs(
+        obs={'obs': np.array([[1, 2, 3], [1, 2, 3]])+1}, reward=np.array([0, 0]), terminal=np.array([False, False]))
+    buffer.append_action(action={'a': np.array([1, 1])})
+    buffer.append_obs(
+        obs={'obs': np.array([[1, 2, 3], [1, 2, 3]])+2}, reward=np.array([0, 0]), terminal=np.array([False, False]))
+
+    assert (buffer.obs['obs'][:, 0, :] == torch.tensor([[1, 2, 3], [2, 3, 4], [3, 4, 5]])).all()
+    assert (buffer.action['a'][:, 0] == torch.tensor([0, 1])).all()
+    assert (buffer.obs['obs'][:, 1, :] == torch.tensor([[1, 2, 3], [2, 3, 4], [3, 4, 5]])).all()
+    assert (buffer.action['a'][:, 1] == torch.tensor([0, 1])).all()
+
 # Misc data
 
 def test_misc_list_of_int():
