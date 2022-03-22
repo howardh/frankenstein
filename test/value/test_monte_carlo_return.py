@@ -4,6 +4,7 @@ import torch
 from frankenstein.value.monte_carlo import monte_carlo_return_iterative as state_value
 from frankenstein.value.monte_carlo import monte_carlo_return_iterative_batch as state_value_batch
 
+
 # No termination
 # Same discount for all steps
 
@@ -40,6 +41,7 @@ def test_3_steps():
     assert output[2].item() == approx(3+0.9*7)
     assert output[1].item() == approx(2+0.9*(3+0.9*7))
     assert output[0].item() == approx(1+0.9*(2+0.9*(3+0.9*7)))
+
 
 # With termination
 # Same discount for all steps
@@ -83,6 +85,7 @@ def test_termination_in_middle():
     assert output[1].item() == approx(2)
     assert output[0].item() == approx(1+0.9*2)
 
+
 # Batched
 
 
@@ -114,6 +117,7 @@ def test_0_steps_2_batch():
         discounts=torch.tensor([[], []], dtype=torch.float).t(),
     )
     assert torch.tensor(output.shape).tolist() == [0, 2]
+
 
 # Make sure the batch version behaves the same as the non-batched version
 
