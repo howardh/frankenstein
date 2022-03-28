@@ -1,7 +1,7 @@
 from pytest import approx
 import torch
 
-from frankenstein.advantage.gae import geneeralized_advantage_estimate as gae
+from frankenstein.advantage.gae import generalized_advantage_estimate as gae
 from frankenstein.value.lam import lambda_return_iterative as lambda_return
 
 # gae lambda = 0 => 1-step advantage

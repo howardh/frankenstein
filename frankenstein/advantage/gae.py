@@ -2,7 +2,7 @@ import torch
 from torchtyping import TensorType
 
 
-def geneeralized_advantage_estimate(
+def generalized_advantage_estimate(
         state_values: TensorType['num_steps', float],
         next_state_values: TensorType['num_steps', float],
         rewards: TensorType['num_steps', float],

@@ -11,7 +11,7 @@ from frankenstein.value.monte_carlo import monte_carlo_return_iterative_batch as
 
 def test_0_steps():
     output = state_value(
-        state_values=torch.tensor([], dtype=torch.float),
+        next_state_values=torch.tensor([], dtype=torch.float),
         rewards=torch.tensor([], dtype=torch.float),
         terminals=torch.tensor([]),
         discounts=torch.tensor([], dtype=torch.float),
@@ -21,7 +21,7 @@ def test_0_steps():
 
 def test_1_steps():
     output = state_value(
-        state_values=torch.tensor([5], dtype=torch.float),
+        next_state_values=torch.tensor([5], dtype=torch.float),
         rewards=torch.tensor([1], dtype=torch.float),
         terminals=torch.tensor([False]),
         discounts=torch.tensor([0.9], dtype=torch.float),
@@ -32,7 +32,7 @@ def test_1_steps():
 
 def test_3_steps():
     output = state_value(
-        state_values=torch.tensor([5, 6, 7], dtype=torch.float),
+        next_state_values=torch.tensor([5, 6, 7], dtype=torch.float),
         rewards=torch.tensor([1, 2, 3], dtype=torch.float),
         terminals=torch.tensor([False, False, False]),
         discounts=torch.tensor([0.9, 0.9, 0.9], dtype=torch.float),
@@ -49,7 +49,7 @@ def test_3_steps():
 
 def test_termination_at_start():
     output = state_value(
-        state_values=torch.tensor([5, 6, 7], dtype=torch.float),
+        next_state_values=torch.tensor([5, 6, 7], dtype=torch.float),
         rewards=torch.tensor([1, 2, 3], dtype=torch.float),
         terminals=torch.tensor([True, False, False], dtype=torch.float),  # Should work with float or bool
         discounts=torch.tensor([0.9, 0.9, 0.9], dtype=torch.float),
@@ -62,7 +62,7 @@ def test_termination_at_start():
 
 def test_termination_at_end():
     output = state_value(
-        state_values=torch.tensor([5, 6, 7], dtype=torch.float),
+        next_state_values=torch.tensor([5, 6, 7], dtype=torch.float),
         rewards=torch.tensor([1, 2, 3], dtype=torch.float),
         terminals=torch.tensor([False, False, True], dtype=torch.float),  # Should work with float or bool
         discounts=torch.tensor([0.9, 0.9, 0.9], dtype=torch.float),
@@ -75,7 +75,7 @@ def test_termination_at_end():
 
 def test_termination_in_middle():
     output = state_value(
-        state_values=torch.tensor([5, 6, 7], dtype=torch.float),
+        next_state_values=torch.tensor([5, 6, 7], dtype=torch.float),
         rewards=torch.tensor([1, 2, 3], dtype=torch.float),
         terminals=torch.tensor([False, True, False], dtype=torch.bool),  # Should work with float or bool
         discounts=torch.tensor([0.9, 0.9, 0.9], dtype=torch.float),
@@ -91,7 +91,7 @@ def test_termination_in_middle():
 
 def test_0_batch():
     output = state_value_batch(
-        state_values=torch.tensor([], dtype=torch.float),
+        next_state_values=torch.tensor([], dtype=torch.float),
         rewards=torch.tensor([], dtype=torch.float),
         terminals=torch.tensor([]),
         discounts=torch.tensor([], dtype=torch.float),
@@ -101,7 +101,7 @@ def test_0_batch():
 
 def test_0_steps_1_batch():
     output = state_value_batch(
-        state_values=torch.tensor([[]], dtype=torch.float).t(),
+        next_state_values=torch.tensor([[]], dtype=torch.float).t(),
         rewards=torch.tensor([[]], dtype=torch.float).t(),
         terminals=torch.tensor([[]]).t(),
         discounts=torch.tensor([[]], dtype=torch.float).t(),
@@ -111,7 +111,7 @@ def test_0_steps_1_batch():
 
 def test_0_steps_2_batch():
     output = state_value_batch(
-        state_values=torch.tensor([[], []], dtype=torch.float).t(),
+        next_state_values=torch.tensor([[], []], dtype=torch.float).t(),
         rewards=torch.tensor([[], []], dtype=torch.float).t(),
         terminals=torch.tensor([[], []]).t(),
         discounts=torch.tensor([[], []], dtype=torch.float).t(),
@@ -130,14 +130,14 @@ def test_batch_matches_non_batched():
     terminals = (torch.rand([num_steps, batch_size])*2).floor().bool()
     discounts = torch.rand([num_steps, batch_size])
     output_batch = state_value_batch(
-        state_values=state_values,
+        next_state_values=state_values,
         rewards=rewards,
         terminals=terminals,
         discounts=discounts,
     )
     for i in range(batch_size):
         output = state_value(
-            state_values=state_values[:, i],
+            next_state_values=state_values[:, i],
             rewards=rewards[:, i],
             terminals=terminals[:, i],
             discounts=discounts[:, i],
