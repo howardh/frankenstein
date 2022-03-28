@@ -2,6 +2,7 @@ from pytest import approx
 import torch
 
 from frankenstein.advantage.gae import generalized_advantage_estimate as gae
+from frankenstein.advantage.gae import generalized_advantage_estimate_batch as gae_batch
 from frankenstein.value.lam import lambda_return_iterative as lambda_return
 
 # gae lambda = 0 => 1-step advantage
@@ -14,6 +15,18 @@ from frankenstein.value.lam import lambda_return_iterative as lambda_return
 
 def test_0_steps():
     output = gae(
+        state_values=torch.tensor([], dtype=torch.float),
+        next_state_values=torch.tensor([], dtype=torch.float),
+        rewards=torch.tensor([], dtype=torch.float),
+        terminals=torch.tensor([], dtype=torch.float),
+        discount=0.9,
+        gae_lambda=0,
+    )
+    assert torch.tensor(output.shape).tolist() == [0]
+
+
+def test_0_steps_batched():
+    output = gae_batch(
         state_values=torch.tensor([], dtype=torch.float),
         next_state_values=torch.tensor([], dtype=torch.float),
         rewards=torch.tensor([], dtype=torch.float),
@@ -100,10 +113,10 @@ def test_termination_in_middle():
     assert output[1].item() == approx(2 - 6)
     assert output[2].item() == approx(3+0.9*8 - 7)
 
+
 # No termination
 # Same discount for all steps
 # gae lambda = 1
-
 
 def test_1_steps_gae_1():
     output = gae(
@@ -164,10 +177,10 @@ def test_3_steps_gae_1():
     d0 = 1+0.9*(2+0.9*(3+0.9*8)) - 5
     assert output[0].item() == approx(d0)
 
+
 # With termination
 # Same discount for all steps
 # gae lambda = 1
-
 
 def test_termination_at_start_gae_1():
     output = gae(
@@ -222,8 +235,8 @@ def test_termination_in_middle_gae_1():
     d0 = 1+0.9*(2) - 5
     assert output[0].item() == approx(d0)
 
-# Compare to values obtained from the lambda returns
 
+# Compare to values obtained from the lambda returns
 
 def test_gae_lambda_return():
     num_steps = 10
@@ -250,3 +263,34 @@ def test_gae_lambda_return():
         output,
         output_lambda_return-state_values[:-1]
     ).all()
+
+
+# Make sure the batch version behaves the same as the non-batched version
+
+def test_batch_matches_non_batched():
+    num_steps = 5
+    batch_size = 10
+    state_values = torch.rand([num_steps, batch_size])
+    next_state_values = torch.rand([num_steps, batch_size])
+    rewards = torch.rand([num_steps, batch_size])
+    terminals = (torch.rand([num_steps, batch_size])*2).floor().bool()
+    gae_lambda = 0.7
+    discount = 0.3
+    output_batch = gae_batch(
+        state_values=state_values,
+        next_state_values=next_state_values,
+        rewards=rewards,
+        terminals=terminals,
+        discount=discount,
+        gae_lambda=gae_lambda,
+    )
+    for i in range(batch_size):
+        output = gae(
+            state_values=state_values[:, i],
+            next_state_values=next_state_values[:, i],
+            rewards=rewards[:, i],
+            terminals=terminals[:, i],
+            discount=discount,
+            gae_lambda=gae_lambda,
+        )
+        assert torch.isclose(output, output_batch[:, i]).all()
