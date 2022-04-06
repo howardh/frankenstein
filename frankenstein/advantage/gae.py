@@ -58,6 +58,9 @@ def generalized_advantage_estimate_batch(
         terminals: A boolean tensor containing $[T(s_1),T(s_2),...,T(s_n)]$ where $T(s)$ is True if $s$ is a terminal state, and False otherwise.
         discount: Discount factor.
         gae_lambda: ...
+
+    Returns:
+        A tensor containing $[A^\\pi(s_0,a_0), A^\\pi(s_1,a_1),\\cdots, A^\\pi(s_{n-1},a_{n-1})]$ where $A^\\pi(s,a)=Q^\\pi(s,a)-V^\\pi(s)$ is the advantage of taking action $a$ at state $s$ over following policy $\\pi$. If $s_i$ is a terminal state, then 
     """
     device = state_values.device
     num_steps = state_values.shape[0]

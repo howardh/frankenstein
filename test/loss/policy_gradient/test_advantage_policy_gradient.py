@@ -2,105 +2,35 @@ from pytest import approx
 import torch
 
 from frankenstein.loss.policy_gradient import advantage_policy_gradient_loss as loss
-from frankenstein.loss.policy_gradient import advantage_policy_gradient_loss_batch as loss_batch
+from frankenstein.advantage.gae import generalized_advantage_estimate as gae
 
 def test_0_steps():
     output = loss(
             log_action_probs = torch.tensor([], dtype=torch.float),
-            state_values = torch.tensor([], dtype=torch.float),
-            next_state_values = torch.tensor([], dtype=torch.float),
-            rewards = torch.tensor([], dtype=torch.float),
             terminals = torch.tensor([], dtype=torch.float),
-            prev_terminals = torch.tensor([], dtype=torch.float),
-            discounts = torch.tensor([], dtype=torch.float),
+            advantages = torch.tensor([], dtype=torch.float),
     )
     assert torch.tensor(output.shape).tolist() == [0]
 
 def test_1_steps():
     output = loss(
             log_action_probs = torch.tensor([-1], dtype=torch.float),
-            state_values = torch.tensor([4], dtype=torch.float),
-            next_state_values = torch.tensor([5], dtype=torch.float),
-            rewards = torch.tensor([1], dtype=torch.float),
             terminals = torch.tensor([False], dtype=torch.float),
-            prev_terminals = torch.tensor([False], dtype=torch.float),
-            discounts = torch.tensor([0.9], dtype=torch.float),
+            advantages = torch.tensor([0.9], dtype=torch.float),
     )
     assert torch.tensor(output.shape).tolist() == [1]
-    v = 1+0.9*5
-    assert output.item() == approx(1*(v-4))
+    assert output.item() == approx(0.9)
 
 def test_3_steps():
     output = loss(
             log_action_probs = torch.tensor([-1,-2,-3], dtype=torch.float),
-            state_values = torch.tensor([4,5,6], dtype=torch.float),
-            next_state_values = torch.tensor([5,6,7], dtype=torch.float),
-            rewards = torch.tensor([1,2,3], dtype=torch.float),
             terminals = torch.tensor([False,False,False], dtype=torch.float),
-            prev_terminals = torch.tensor([False,False,False], dtype=torch.float),
-            discounts = torch.tensor([0.9,0.9,0.9], dtype=torch.float),
+            advantages = torch.tensor([0.9,0.9,0.9], dtype=torch.float),
     )
     assert torch.tensor(output.shape).tolist() == [3]
-    v2 = 3+0.9*7
-    assert output[2].item() == approx(3*(v2-6))
-    v1 = 2+0.9*v2
-    assert output[1].item() == approx(2*(v1-5))
-    v0 = 1+0.9*v1
-    assert output[0].item() == approx(1*(v0-4))
-
-# With termination
-# Same discount for all steps
-def test_termination_at_start():
-    output = loss(
-            log_action_probs = torch.tensor([-1,-2,-3], dtype=torch.float),
-            state_values = torch.tensor([4,5,6], dtype=torch.float),
-            next_state_values = torch.tensor([5,6,7], dtype=torch.float),
-            rewards = torch.tensor([1,2,3], dtype=torch.float),
-            terminals = torch.tensor([True,False,False], dtype=torch.float),
-            prev_terminals = torch.tensor([False,True,False], dtype=torch.float),
-            discounts = torch.tensor([0.9,0.9,0.9], dtype=torch.float),
-    )
-    assert torch.tensor(output.shape).tolist() == [3]
-    v2 = 3+0.9*7
-    assert output[2].item() == approx(3*(v2-6))
-    assert output[1].item() == approx(0)
-    v0 = 1
-    assert output[0].item() == approx(1*(v0-4))
-
-def test_termination_at_end():
-    output = loss(
-            log_action_probs = torch.tensor([-1,-2,-3], dtype=torch.float),
-            state_values = torch.tensor([4,5,6], dtype=torch.float),
-            next_state_values = torch.tensor([5,6,7], dtype=torch.float),
-            rewards = torch.tensor([1,2,3], dtype=torch.float),
-            terminals = torch.tensor([False,False,True], dtype=torch.float),
-            prev_terminals = torch.tensor([False,False,False], dtype=torch.float),
-            discounts = torch.tensor([0.9,0.9,0.9], dtype=torch.float),
-    )
-    assert torch.tensor(output.shape).tolist() == [3]
-    v2 = 3
-    assert output[2].item() == approx(3*(v2-6))
-    v1 = 2+0.9*v2
-    assert output[1].item() == approx(2*(v1-5))
-    v0 = 1+0.9*v1
-    assert output[0].item() == approx(1*(v0-4))
-
-def test_termination_in_middle():
-    output = loss(
-            log_action_probs = torch.tensor([-1,-2,-3], dtype=torch.float),
-            state_values = torch.tensor([4,5,6], dtype=torch.float),
-            next_state_values = torch.tensor([5,6,7], dtype=torch.float),
-            rewards = torch.tensor([1,2,3], dtype=torch.float),
-            terminals = torch.tensor([False,True,False], dtype=torch.float),
-            prev_terminals = torch.tensor([False,False,True], dtype=torch.float),
-            discounts = torch.tensor([0.9,0.9,0.9], dtype=torch.float),
-    )
-    assert torch.tensor(output.shape).tolist() == [3]
-    assert output[2].item() == approx(0)
-    v1 = 2
-    assert output[1].item() == approx(2*(v1-5))
-    v0 = 1+0.9*v1
-    assert output[0].item() == approx(1*(v0-4))
+    assert output[0].item() == approx(0.9)
+    assert output[1].item() == approx(1.8)
+    assert output[2].item() == approx(2.7)
 
 # Make sure it learns the correct policy
 def test_training():
@@ -113,47 +43,21 @@ def test_training():
         state_value = torch.tensor([probs[1].exp()/(1-0.9)])
         dist = torch.distributions.Categorical(probs=probs)
         action = dist.sample()
-        l = loss(
-                log_action_probs = probs[action],
+        advantages = gae(
                 state_values = state_value,
                 next_state_values = state_value,
                 rewards = action.unsqueeze(0),
                 terminals = torch.tensor([False]),
-                prev_terminals = torch.tensor([False]),
-                discounts = torch.tensor([0.9]),
+                discount = 0.9,
+                gae_lambda=0.95,
+        )
+        l = loss(
+                log_action_probs = probs[action],
+                terminals = torch.tensor([False]),
+                advantages = advantages,
         )
         optimizer.zero_grad()
         l.backward()
         optimizer.step()
     # The probability for the good action should be higher than that of the bad action
     assert policy_weights[1] > policy_weights[0]
-
-# Make sure the batch version behaves the same as the non-batched version
-def test_batch_matches_non_batched():
-    num_steps = 5
-    batch_size = 10
-    log_action_probs = torch.rand([num_steps,batch_size]).log_softmax(1)
-    state_values = torch.rand([num_steps+1,batch_size])
-    rewards = torch.rand([num_steps,batch_size])
-    terminals = (torch.rand([num_steps+1,batch_size])*2).floor().bool()
-    discounts = torch.rand([num_steps,batch_size])
-    output_batch = loss_batch(
-            log_action_probs=log_action_probs,
-            state_values = state_values[:-1,:],
-            next_state_values = state_values[1:,:],
-            rewards = rewards,
-            terminals = terminals[1:,:],
-            prev_terminals = terminals[:-1,:],
-            discounts = discounts,
-    )
-    for i in range(batch_size):
-        output = loss(
-                log_action_probs=log_action_probs[:,i],
-                state_values = state_values[:-1,i],
-                next_state_values = state_values[1:,i],
-                rewards = rewards[:,i],
-                terminals = terminals[1:,i],
-                prev_terminals = terminals[:-1,i],
-                discounts = discounts[:,i],
-        )
-        assert torch.isclose(output, output_batch[:,i]).all()
