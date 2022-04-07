@@ -2,7 +2,6 @@ from pytest import approx
 import torch
 
 from frankenstein.advantage.gae import generalized_advantage_estimate as gae
-from frankenstein.advantage.gae import generalized_advantage_estimate_batch as gae_batch
 from frankenstein.value.lam import lambda_return_iterative as lambda_return
 
 # gae lambda = 0 => 1-step advantage
@@ -15,18 +14,6 @@ from frankenstein.value.lam import lambda_return_iterative as lambda_return
 
 def test_0_steps():
     output = gae(
-        state_values=torch.tensor([], dtype=torch.float),
-        next_state_values=torch.tensor([], dtype=torch.float),
-        rewards=torch.tensor([], dtype=torch.float),
-        terminals=torch.tensor([], dtype=torch.float),
-        discount=0.9,
-        gae_lambda=0,
-    )
-    assert torch.tensor(output.shape).tolist() == [0]
-
-
-def test_0_steps_batched():
-    output = gae_batch(
         state_values=torch.tensor([], dtype=torch.float),
         next_state_values=torch.tensor([], dtype=torch.float),
         rewards=torch.tensor([], dtype=torch.float),
@@ -276,7 +263,7 @@ def test_batch_matches_non_batched():
     terminals = (torch.rand([num_steps, batch_size])*2).floor().bool()
     gae_lambda = 0.7
     discount = 0.3
-    output_batch = gae_batch(
+    output_batch = gae(
         state_values=state_values,
         next_state_values=next_state_values,
         rewards=rewards,
@@ -294,3 +281,36 @@ def test_batch_matches_non_batched():
             gae_lambda=gae_lambda,
         )
         assert torch.isclose(output, output_batch[:, i]).all()
+
+
+def test_batch_matches_non_batched_3_dims():
+    num_steps = 5
+    batch_size = 10
+    batch_size2 = 10
+    batch_size3 = 10
+    state_values = torch.rand([num_steps, batch_size, batch_size2, batch_size3])
+    next_state_values = torch.rand([num_steps, batch_size, batch_size2, batch_size3])
+    rewards = torch.rand([num_steps, batch_size, batch_size2, batch_size3])
+    terminals = (torch.rand([num_steps, batch_size, batch_size2, batch_size3])*2).floor().bool()
+    gae_lambda = 0.7
+    discount = 0.3
+    output_batch = gae(
+        state_values=state_values,
+        next_state_values=next_state_values,
+        rewards=rewards,
+        terminals=terminals,
+        discount=discount,
+        gae_lambda=gae_lambda,
+    )
+    for i in range(batch_size):
+        for j in range(batch_size2):
+            for k in range(batch_size3):
+                output = gae(
+                    state_values=state_values[:, i, j, k],
+                    next_state_values=next_state_values[:, i, j, k],
+                    rewards=rewards[:, i, j, k],
+                    terminals=terminals[:, i, j, k],
+                    discount=discount,
+                    gae_lambda=gae_lambda,
+                )
+                assert torch.isclose(output, output_batch[:, i, j, k]).all()
