@@ -301,6 +301,24 @@ def test_dict_obs_dict_action():
 
 # Misc data
 
+def test_no_misc():
+    buffer = Buffer(
+        num_envs=1,
+        max_len=3,
+    )
+    buffer.append_obs(obs=np.array([0]))
+    buffer.append_action(action=np.array([0]))
+    buffer.append_obs(
+        obs=np.array([0]), reward=np.array([0]),
+        terminal=np.array([False]))
+    buffer.append_action(action=np.array([0]))
+    buffer.append_obs(
+        obs=np.array([0]), reward=np.array([0]),
+        terminal=np.array([False]))
+
+    assert buffer.misc is None
+
+
 def test_misc_list_of_int():
     buffer = Buffer(
         num_envs=1,

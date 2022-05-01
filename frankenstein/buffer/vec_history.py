@@ -124,6 +124,8 @@ class VecHistoryBuffer(Generic[ObsType, ActionType, MiscType]):
     @property
     def misc(self):
         elem = self.misc_history[0]
+        if elem is None:
+            return None
         if isinstance(elem, Mapping):
             output = default_collate(self.misc_history)
         else:
