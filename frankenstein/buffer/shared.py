@@ -4,6 +4,7 @@ import threading
 import torch
 from torch import multiprocessing as mp
 from torch.utils.data.dataloader import default_collate
+import numpy as np
 
 ObsType = TypeVar('ObsType')
 ActionType = TypeVar('ActionType')
@@ -20,7 +21,7 @@ def make_buffer(space, rollout_length):
         ).share_memory_()
     elif space['type'] == 'discrete':
         return torch.zeros(
-                size=(rollout_length + 1, 1),
+                size=(rollout_length + 1, 1), # Extra dimension to match the shape of box
                 dtype=space.get('dtype', torch.uint8),
         ).share_memory_()
     elif space['type'] == 'dict':
@@ -42,10 +43,11 @@ def copy_tensor(src, dest, dest_indices=...):
         if isinstance(src, torch.Tensor):
             dest.__setitem__(dest_indices, src.to(dtype=dest.dtype))
         else:
-            try:
-                dest.__setitem__(dest_indices, torch.tensor(src, dtype=dest.dtype))
-            except:
-                raise TypeError(f"Unable to convert object of type {type(src)} to tensor")
+            dest.__setitem__(dest_indices, torch.tensor(src, dtype=dest.dtype))
+            #try:
+            #    dest.__setitem__(dest_indices, torch.tensor(src, dtype=dest.dtype))
+            #except Exception as e:
+            #    raise TypeError(f"Unable to convert object of type {type(src)} to tensor")
     elif isinstance(dest, Mapping):
         for k in src.keys():
             copy_tensor(src[k], dest[k], dest_indices=dest_indices)
@@ -81,6 +83,19 @@ def to_device(x, device):
         return tuple(to_device(v, device) for v in x)
     elif isinstance(x, List):
         return list(to_device(v, device) for v in x)
+    else: # pragma: no cover
+        raise NotImplementedError(f"Unknown data type: {type(x)}")
+
+
+def get_slice(x, indices):
+    if isinstance(x, torch.Tensor) or isinstance(x, np.ndarray):
+        return x[indices]
+    elif isinstance(x, Mapping):
+        return {k: get_slice(v, indices) for k,v in x.items()}
+    elif isinstance(x, Tuple):
+        return tuple(get_slice(v, indices) for v in x)
+    elif isinstance(x, List):
+        return list(get_slice(v, indices) for v in x)
     else: # pragma: no cover
         raise NotImplementedError(f"Unknown data type: {type(x)}")
 
@@ -175,6 +190,62 @@ class SharedBuffer(Generic[ObsType, ActionType, MiscType]):
             self.current_buffer_index = None
 
 
+class SharedBufferVec(SharedBuffer):
+    def __init__(self, num_buffers, rollout_length, observation_space, action_space, misc_space, mp_context, batch_size):
+        super().__init__(num_buffers, rollout_length, observation_space, action_space, misc_space, mp_context=mp_context)
+
+        self.batch_size = batch_size
+
+    def append_obs(self, obs, reward, terminal, misc):
+        # Get the buffer index for this environment/worker.
+        buffer_index = self.current_buffer_index
+        if buffer_index is None:
+            buffer_index = [self._empty_queue.get() for _ in range(self.batch_size)]
+            self.current_buffer_index = buffer_index
+            for i in range(self.batch_size):
+                self.buffers[buffer_index[i]].reset()
+                if self.last_obs is not None and self.last_action is not None:
+                    #self.buffers[buffer_index[i]].append_obs(*[get_slice(x,i) for x in self.last_obs])
+                    self.buffers[buffer_index[i]].append_obs(
+                            get_slice(self.last_obs[0],i),
+                            self.last_obs[1][i].item(),
+                            self.last_obs[2][i].item(),
+                            get_slice(self.last_obs[3],i),
+                    )
+                    self.buffers[buffer_index[i]].append_action(self.last_action[i])
+
+        # Save a copy of this observation
+        self.last_obs = (obs, reward, terminal, misc)
+
+        for i in range(len(buffer_index)):
+            # Append the data to the buffer.
+            self.buffers[buffer_index[i]].append_obs(
+                    get_slice(self.last_obs[0],i),
+                    self.last_obs[1][i].item(),
+                    self.last_obs[2][i].item(),
+                    get_slice(self.last_obs[3],i),
+            )
+
+    def append_action(self, action):
+        # Get the buffer index for this environment/worker.
+        buffer_index = self.current_buffer_index
+        assert buffer_index is not None
+
+        # Save a copy of this action
+        self.last_action = action
+
+        # Append the data to the buffer.
+        for i in range(self.batch_size):
+            self.buffers[buffer_index[i]].append_action(action[i])
+
+        # Check if the buffer is full.
+        if self.buffers[buffer_index[0]].is_full():
+            # Put the buffer index back in the empty queue.
+            for i in range(self.batch_size):
+                self._full_queue.put(buffer_index[i])
+            self.current_buffer_index = None
+
+
 class SingleSharedBuffer(Generic[ObsType, ActionType, MiscType]):
     def __init__(self,
             rollout_length,
@@ -248,6 +319,15 @@ class SharedBufferBatch(Generic[ObsType, ActionType, MiscType]):
                     [self.buffers.buffers[i].misc_history for i in indices])
         else:
             self.misc = None
+
+    def to(self, device):
+        self.obs = to_device(self.obs, device)
+        self.action = to_device(self.action, device)
+        self.reward = to_device(self.reward, device)
+        self.terminal = to_device(self.terminal, device)
+        if self.misc is not None:
+            self.misc = to_device(self.misc, device)
+        return self
 
     def release(self):
         for i in self.indices:

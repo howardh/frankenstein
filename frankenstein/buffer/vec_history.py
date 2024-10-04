@@ -39,8 +39,8 @@ class VecHistoryBuffer(Generic[ObsType, ActionType, MiscType]):
     def append_obs(self,
                    obs: ObsType,
                    reward: Optional[np.ndarray] = None,
-                   terminal: np.ndarray = None,
-                   misc: MiscType = None,
+                   terminal: np.ndarray | None = None,
+                   misc: MiscType | None = None,
                    ) -> None:
         # Handle boundary between episodes
         if reward is None:
