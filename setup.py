@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(name='frankenstein',
     version='0.0.1',
-    install_requires=['torch', 'torchtyping'],
+    install_requires=['torch', 'torchtyping', 'gymnasium', 'ale-py'],
     extras_require={
         'dev': ['pytest','pytest-cov','pytest-timeout','pdoc','numpy','flake8','autopep8'],
     },
