@@ -1,4 +1,5 @@
-from typing import Optional, Generic, TypeVar, Mapping, List
+from dataclasses import dataclass
+from typing import Generic, TypeVar, Mapping, List, NamedTuple
 
 import torch
 from torchtyping import TensorType
@@ -9,291 +10,196 @@ ActionType = TypeVar('ActionType')
 MiscType = TypeVar('MiscType')
 
 
-def transpose_batch_seqlen(data):
-    """ Transpose the batch size and sequence length dimensions (i.e. dimensions 0 and 1) """
-    if isinstance(data, torch.Tensor):
-        return data.transpose(1, 0)
-    elif isinstance(data, tuple) or isinstance(data, list):
-        return tuple([
-            transpose_batch_seqlen(v)
-            for v in data
-        ])
-    elif isinstance(data, Mapping):
-        return {
-            k: transpose_batch_seqlen(v)
-            for k, v in data.items()
-        }
-    else:
-        raise Exception(f'Unable to handle data of type {type(data)}')  # pragma: no cover
+@dataclass
+class Transition(Generic[ObsType, ActionType, MiscType]):
+    obs: ObsType
+    """ Start state """
+    action: ActionType
+    """ Action taken at the start state (`obs`) """
+    next_obs: ObsType
+    """ State observed after taking the action (`action`) at the start state (`obs`) """
+    reward: float
+    """ Reward received after taking the action (`action`) at the start state (`obs`) """
+    terminal: bool
+    """ Whether the next state (`next_obs`) is terminal"""
+    misc: MiscType | None
+    """ Miscellaneous data associated with `obs` """
+    next_misc: MiscType | None
+    """ Miscellaneous data associated with `next_obs` """
 
 
-def to_device(data, device):
-    if isinstance(data, torch.Tensor):
-        return data.to(device)
-    elif isinstance(data, tuple) or isinstance(data, list):
-        return tuple([
-            to_device(v, device)
-            for v in data
-        ])
-    elif isinstance(data, Mapping):
-        return {
-            k: to_device(v, device)
-            for k, v in data.items()
-        }
-    else:
-        raise Exception(f'Unable to handle data of type {type(data)}')  # pragma: no cover
-
-
-def clip_sequence(data: List[torch.Tensor]):
-    """ Clip the tensors in the provided list to the length of the shortest tensor. """
-    elem = data[0]
-    if isinstance(elem, torch.Tensor):
-        min_len = min(*[len(x) for x in data])
-        return [x[:min_len] for x in data]
-    else:
-        raise Exception(f'Unable to handle data of type {type(data)}')  # pragma: no cover
+@dataclass
+class Trajectory(Generic[ObsType, ActionType, MiscType]):
+    obs: list[ObsType]
+    action: list[ActionType]
+    next_obs: list[ObsType]
+    reward: list[float]
+    terminal: list[bool]
+    misc: list[MiscType | None]
+    next_misc: list[MiscType | None]
 
 
 class HistoryBuffer(Generic[ObsType, ActionType, MiscType]):
     def __init__(self,
                  max_len: int,
-                 num_envs: int = 0,
-                 default_action: ActionType = None,
+                 trajectory_length: int | None = None,
                  batch_first: bool = False,
                  device: torch.device = torch.device('cpu')
                  ) -> None:
         """
         Args:
-            max_len (int): The number of transitions to store for each environment. The `HistoryBuffer` will keep a history of `max_len+1` observations.
-            num_envs (int): Number of environments running concurrently. This can grow dynamically.
+            max_len (int): The total number of observations to store. Note that this is different from the number of transitions stored, which can vary depending on the number of terminal states encountered.
+            trajectory_length (int): Length of trajectories (number of transitions) to be sampled from this buffer. If `None`, then trajectory sampling is disabled.
             default_action: Action to use as padding at the end of an episode.
             batch_first (bool): If set to `True`, then all returned tensors will have the shape `(batch_size, seq_len, ...)`. Otherwise, they will take the shape `(seq_len, batch_size, ...)`. Default: `False`.
         """
-        self._num_envs = num_envs
         self.device = device
         self.max_len = max_len
+        self.trajectory_length = trajectory_length
         self.batch_first = batch_first
 
         # Validate input
         if max_len < 1:
+            # We enforce this because it makes the append_action method easier to implement. I don't think there's a good use case for allowing it.
             raise ValueError('`max_len` must be at least 1')
 
         # History is saved as a list instead of tensors to save on memory. This allows for data to be stored in formats like LazyFrames.
-        self.obs_history = [[] for _ in range(num_envs)]
-        self.action_history = [[] for _ in range(num_envs)]
-        self.reward_history = [[] for _ in range(num_envs)]
-        self.terminal_history = [[] for _ in range(num_envs)]
-        self.misc_history = [[] for _ in range(num_envs)]
+        self.obs_history: list[ObsType] = []
+        self.action_history: list[ActionType] = []
+        self.reward_history: list[float] = []
+        self.terminal_history: list[bool] = []
+        self.misc_history: list[MiscType|None] = []
 
-        self.default_action = default_action
         self.default_reward = 0
 
         self._terminated_eps = False
-
-    def __getitem__(self, index):
-        self._resize_if_needed(index)
-        return HistoryBufferSlice(self, env_index=index)
-
-    def _resize_if_needed(self, index):
-        if index >= self._num_envs:
-            if index == self._num_envs:
-                self.obs_history.append([])
-                self.action_history.append([])
-                self.reward_history.append([])
-                self.terminal_history.append([])
-                self.misc_history.append([])
-                self._num_envs += 1
-            else:
-                raise Exception('The HistoryBuffer cannot be dynamically resized by more than one element at a time. Either access the slices in order, or predefine the number of environments appropriately with `num_envs`.')
+        self._num_transitions = 0
+        self._transition_view = TransitionView(self)
+        self._trajectory_view = TrajectoryView(self)
 
     def append_obs(self,
                    obs: ObsType,
-                   reward: Optional[float] = None,
+                   reward: float | None = None,
                    terminal: bool = False,
-                   misc: MiscType = None,
-                   env_index: int = None
+                   misc: MiscType | None = None,
                    ) -> None:
-        # Default env_index
-        if env_index is None:
-            if self._num_envs <= 1:
-                env_index = 0
-            else:
-                raise Exception('`env_index` must be specified.')
-        self._resize_if_needed(env_index)
-        # Handle boundary between episodes
-        if reward is None:
-            reward = self.default_reward
-
         # Make sure the observations and actions are in sync
         assert len(self.obs_history) == len(self.action_history)
 
+        # Handle boundary between episodes
+        if reward is None:
+            reward = self.default_reward
+        else:
+            self._num_transitions += 1
+
         # Save data
-        self.obs_history[env_index].append(obs)
-        self.reward_history[env_index].append(reward)
-        self.terminal_history[env_index].append(terminal)
-        self.misc_history[env_index].append(misc)
+        self.obs_history.append(obs)
+        self.reward_history.append(reward)
+        self.terminal_history.append(terminal)
+        self.misc_history.append(misc)
 
         if terminal:
             # The last episode just finished, so we receive a new observation to start the episode without an action in between.
-            # Add an action to pad the actions list.
-            self.append_action(self.default_action, env_index)
+            # Add an arbitrary action to pad the actions list.
+            self.append_action(self.action_history[0])
 
         # Enforce max length
-        if self.max_len is not None and len(self.obs_history[env_index]) > self.max_len+1:
-            self.obs_history[env_index] = self.obs_history[env_index][1:]
-            self.reward_history[env_index] = self.reward_history[env_index][1:]
-            self.terminal_history[env_index] = self.terminal_history[env_index][1:]
-            self.action_history[env_index] = self.action_history[env_index][1:]
-            self.misc_history[env_index] = self.misc_history[env_index][1:]
+        if self.max_len is not None and len(self.obs_history) > self.max_len:
+            if not self.terminal_history[0]:
+                self._num_transitions -= 1
+            self.obs_history = self.obs_history[1:]
+            self.reward_history = self.reward_history[1:]
+            self.terminal_history = self.terminal_history[1:]
+            self.action_history = self.action_history[1:]
+            self.misc_history = self.misc_history[1:]
 
-    def append_action(self, action: ActionType, env_index: int = None):
-        # Default env_index
-        if env_index is None:
-            if self._num_envs <= 1:
-                env_index = 0
-            else:
-                raise Exception('`env_index` must be specified.')
-        self._resize_if_needed(env_index)
+    def append_action(self, action: ActionType):
         # Append action
-        obs_history = self.obs_history[env_index]
-        action_history = self.action_history[env_index]
+        obs_history = self.obs_history
+        action_history = self.action_history
         assert len(obs_history) == len(action_history)+1
         action_history.append(action)
 
     def clear(self):
-        for i in range(self._num_envs):
-            self[i].clear()
+        raise NotImplementedError()
+
+    def __len__(self):
+        return self.num_observations
 
     @property
-    def obs(self) -> TensorType['seq_len', 'num_envs', 'obs_shape']:
-        output = torch.stack([
-            self[i].obs for i in range(self._num_envs)
-        ], dim=1-self.batch_first)
-        return output
+    def num_observations(self):
+        return len(self.obs_history)
 
     @property
-    def reward(self) -> TensorType['seq_len', 'num_envs', float]:
-        output = torch.tensor([
-            [r for r in reward_hist]
-            for reward_hist in self.reward_history
-        ], device=self.device)
-        if not self.batch_first:
-            output = transpose_batch_seqlen(output)
-        return output
+    def num_transitions(self):
+        return self._num_transitions
+
+    def get_transition(self, index) -> Transition[ObsType, ActionType, MiscType]:
+        if index >= self._num_transitions:
+            raise IndexError('Index out of range')
+        i = 0
+        for i,t in enumerate(self.terminal_history):
+            if t:
+                index += 1
+            if i == index:
+                break
+        return Transition(
+            self.obs_history[i],
+            self.action_history[i],
+            self.obs_history[i+1],
+            self.reward_history[i+1],
+            self.terminal_history[i+1],
+            self.misc_history[i],
+            self.misc_history[i+1]
+        )
 
     @property
-    def terminal(self) -> TensorType['seq_len', 'num_envs', bool]:
-        output = torch.tensor([
-            [t for t in term_hist]
-            for term_hist in self.terminal_history
-        ], device=self.device)
-        if not self.batch_first:
-            output = transpose_batch_seqlen(output)
-        return output
+    def num_trajectories(self):
+        if self.trajectory_length is None:
+            raise ValueError('Trajectory sampling is disabled. To enable, set `trajectory_length` to a positive integer.')
+        if self.num_observations < self.trajectory_length:
+            return 0
+        return self.num_observations - self.trajectory_length
+
+    def get_trajectory(self, index) -> Trajectory[ObsType, ActionType, MiscType]:
+        if index >= self.num_trajectories:
+            raise IndexError('Index out of range')
+        return Trajectory(
+            obs = self.obs_history[index:index+self.trajectory_length],
+            action = self.action_history[index:index+self.trajectory_length],
+            next_obs = self.obs_history[index+1:index+self.trajectory_length+1],
+            reward = self.reward_history[index+1:index+self.trajectory_length+1],
+            terminal = self.terminal_history[index+1:index+self.trajectory_length+1],
+            misc = self.misc_history[index:index+self.trajectory_length],
+            next_misc = self.misc_history[index+1:index+self.trajectory_length+1]
+        )
 
     @property
-    def action(self) -> TensorType['seq_len', 'num_envs', 'action_shape']:
-        try:
-            output = default_collate([self[i].action for i in range(self._num_envs)])
-        except BaseException:  # FIXME: hacky
-            output = default_collate(clip_sequence([self[i].action for i in range(self._num_envs)]))
-        if not self.batch_first:
-            output = transpose_batch_seqlen(output)
-        return output
+    def transitions(self):
+        return self._transition_view
 
     @property
-    def misc(self):
-        output = default_collate([
-            self[i].misc for i in range(self._num_envs)
-        ])
-        if self.batch_first:
-            return output
-        return transpose_batch_seqlen(output)
+    def trajectories(self):
+        return self._trajectory_view
 
 
-class HistoryBufferSlice(Generic[ObsType, ActionType, MiscType]):
-    def __init__(self, buffer, env_index) -> None:
-        self.buffer = buffer
-        self.env_index = env_index
+class TransitionView():
+    def __init__(self, buffer: HistoryBuffer):
+        self._buffer = buffer
 
-    def append_obs(self,
-                   obs: ObsType,
-                   reward: Optional[float] = None,
-                   terminal: bool = False,
-                   misc: MiscType = None,
-                   ) -> None:
-        self.buffer.append_obs(obs=obs, reward=reward, terminal=terminal, misc=misc, env_index=self.env_index)
+    def __len__(self):
+        return self._buffer.num_transitions
 
-    def append_action(self, action: ActionType):
-        self.buffer.append_action(action=action, env_index=self.env_index)
+    def __getitem__(self, index):
+        return self._buffer.get_transition(index)
 
-    def clear(self):
-        i = len(self.obs_history)-1
-        self.obs_history = self.obs_history[i:]
-        self.reward_history = self.reward_history[i:]
-        self.terminal_history = self.terminal_history[i:]
-        self.action_history = self.action_history[i:]
-        self.misc_history = self.misc_history[i:]
 
-    @property
-    def obs_history(self):
-        return self.buffer.obs_history[self.env_index]
+class TrajectoryView():
+    def __init__(self, buffer: HistoryBuffer):
+        self._buffer = buffer
 
-    @property
-    def reward_history(self):
-        return self.buffer.reward_history[self.env_index]
+    def __len__(self):
+        return self._buffer.num_trajectories
 
-    @property
-    def terminal_history(self):
-        return self.buffer.terminal_history[self.env_index]
-
-    @property
-    def action_history(self):
-        return self.buffer.action_history[self.env_index]
-
-    @property
-    def misc_history(self):
-        return self.buffer.misc_history[self.env_index]
-
-    @obs_history.setter
-    def obs_history(self, val):
-        self.buffer.obs_history[self.env_index] = val
-
-    @reward_history.setter
-    def reward_history(self, val):
-        self.buffer.reward_history[self.env_index] = val
-
-    @terminal_history.setter
-    def terminal_history(self, val):
-        self.buffer.terminal_history[self.env_index] = val
-
-    @action_history.setter
-    def action_history(self, val):
-        self.buffer.action_history[self.env_index] = val
-
-    @misc_history.setter
-    def misc_history(self, val):
-        self.buffer.misc_history[self.env_index] = val
-
-    @property
-    def obs(self) -> TensorType['seq_len', 'obs_shape']:
-        return torch.stack([
-            o if isinstance(o, torch.Tensor) else torch.tensor(o, device=self.buffer.device)
-            for o in self.obs_history
-        ])
-
-    @property
-    def action(self) -> TensorType['seq_len', 'action_shape']:
-        return to_device(default_collate(self.action_history), self.buffer.device)
-
-    @property
-    def reward(self) -> TensorType['seq_len', 'num_envs', float]:
-        return torch.tensor(self.buffer.reward_history[self.env_index], device=self.buffer.device)
-
-    @property
-    def terminal(self) -> TensorType['seq_len', 'num_envs', bool]:
-        return torch.tensor(self.buffer.terminal_history[self.env_index], device=self.buffer.device)
-
-    @property
-    def misc(self):
-        return to_device(default_collate(self.misc_history), self.buffer.device)
+    def __getitem__(self, index):
+        return self._buffer.get_trajectory(index)

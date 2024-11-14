@@ -5,11 +5,27 @@ import torch
 from torchtyping import TensorType
 from torch.utils.data.dataloader import default_collate
 
-from .history import to_device
 
 ObsType = TypeVar('ObsType')
 ActionType = TypeVar('ActionType')
 MiscType = TypeVar('MiscType')
+
+
+def to_device(data, device):
+    if isinstance(data, torch.Tensor):
+        return data.to(device)
+    elif isinstance(data, tuple) or isinstance(data, list):
+        return tuple([
+            to_device(v, device)
+            for v in data
+        ])
+    elif isinstance(data, Mapping):
+        return {
+            k: to_device(v, device)
+            for k, v in data.items()
+        }
+    else:
+        raise Exception(f'Unable to handle data of type {type(data)}')  # pragma: no cover
 
 
 class VecHistoryBuffer(Generic[ObsType, ActionType, MiscType]):
