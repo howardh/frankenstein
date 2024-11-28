@@ -19,7 +19,7 @@ if __name__ == '__main__':
                 'value': self.fc_value(x)
             }
 
-    env = gymnasium.vector.make('CartPole-v1', num_envs=4)
+    env = gymnasium.make_vec('CartPole-v1', num_envs=4)
     assert env.single_observation_space.shape is not None
     assert isinstance(env.single_action_space, gymnasium.spaces.Discrete)
     model = Model(env.single_observation_space.shape[0], env.single_action_space.n)

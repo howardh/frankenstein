@@ -107,10 +107,9 @@ class VerboseLoggingCallbacks(PPOCallbacks):
 
         # Check for RecordEpisodeStatistics wrapper
         info = l['info']
-        if info['_final_info'].any():
-            final_info = info['final_info'][info['_final_info']]
-            if 'episode' in final_info[0]:
-                self._episode_true_reward.extend([x['episode']['r'].item() for x in final_info])
+        if 'episode' in info and '_episode' in info:
+            if info['_episode'].any():
+                self._episode_true_reward.extend(info['episode']['r'][info['_episode']].tolist())
 
     def on_step_start(self, l):
         if self._num_completed_episodes == 0:
@@ -122,8 +121,9 @@ class VerboseLoggingCallbacks(PPOCallbacks):
                 term_width, _ = os. get_terminal_size()
             except:
                 term_width = 80
+            completed_transitions = l['num_envs'] * l['step'] * l['rollout_length']
             print(f'Time: {datetime.datetime.now()}')
-            print(f'Completed step {l["step"]} ({format_rate(l["step"], "step", "steps", time.time() - self._start_time)})')
+            print(f'Completed transitions: {completed_transitions:,} ({format_rate(completed_transitions, "step", "steps", time.time() - self._start_time)})')
             print(f'Completed episode(s): {self._num_completed_episodes} ({format_rate(self._num_completed_episodes, "episode", "episodes", time_diff)})')
 
             if len(self._episode_true_reward) == 0:
@@ -176,6 +176,7 @@ class WandbLoggingCallbacks(PPOCallbacks):
             )
         except:
             self._run = None
+            print('Failed to initialize W&B.')
             pass
 
         self._transition_count = 0
@@ -223,10 +224,9 @@ class WandbLoggingCallbacks(PPOCallbacks):
         self._data['episode length'] = np.mean(l['episode_steps'][done])
 
         info = l['info']
-        if info['_final_info'].any():
-            final_info = info['final_info'][info['_final_info']]
-            if 'episode' in final_info[0]:
-                self._data['true reward'] = np.mean([x['episode']['r'].item() for x in final_info])
+        if 'episode' in info and '_episode' in info:
+            if info['_episode'].any():
+                self._data['true reward'] = np.mean(info['episode']['r'][info['_episode']].tolist())
 
     def on_epoch_end(self, l):
         if self._run is None:
@@ -315,7 +315,7 @@ def compute_loss_intermediates(
     - Log action probabilities
     """
     reward = history.reward
-    terminal = history.terminal
+    terminated = history.terminated
     n = len(history.obs_history)
 
     with torch.no_grad():
@@ -332,7 +332,7 @@ def compute_loss_intermediates(
                 state_values = state_values[:n-1,:],
                 next_state_values = state_values[1:,:],
                 rewards = reward[1:,:],
-                terminals = terminal[1:,:],
+                terminals = terminated[1:,:],
                 discount = discount,
                 gae_lambda = gae_lambda,
         )
@@ -361,7 +361,7 @@ def compute_ppo_losses(
     Compute the losses for PPO.
     """
 
-    terminal = history.terminal
+    terminated = history.terminated
 
     n = len(history.obs_history)
 
@@ -390,7 +390,7 @@ def compute_ppo_losses(
             log_action_probs = log_action_probs,
             old_log_action_probs = log_action_probs_old,
             advantages = advantages,
-            terminals = terminal[:n-1],
+            terminals = terminated[:n-1],
             epsilon=clip_pg_ratio,
     )
 
@@ -691,19 +691,19 @@ def compute_recurrent_model_output(
 
     obs = history.obs
     action = history.action
-    terminal = history.terminal
+    terminated = history.terminated
     misc = history.misc
     assert isinstance(misc,dict)
     hidden = misc['hidden']
 
     device = next(model.parameters()).device
-    num_training_envs = len(terminal[0])
+    num_training_envs = len(terminated[0])
     n = len(history.obs_history)
 
     model_output = []
     curr_hidden = tuple([h[0].detach() for h in hidden])
     initial_hidden = model.init_hidden(num_training_envs) # type: ignore
-    for o,term in recursive_zip(obs,terminal):
+    for o,term in recursive_zip(obs,terminated):
         curr_hidden = reset_hidden(
                 terminal = term,
                 hidden = curr_hidden,

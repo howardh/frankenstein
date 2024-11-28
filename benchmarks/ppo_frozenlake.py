@@ -21,7 +21,7 @@ if __name__ == '__main__':
                 'value': self.values[x].unsqueeze(1),
             }
 
-    env = gymnasium.vector.make('FrozenLake-v1', num_envs=4)
+    env = gymnasium.make_vec('FrozenLake-v1', num_envs=4)
     assert isinstance(env.single_observation_space, gymnasium.spaces.Discrete)
     assert isinstance(env.single_action_space, gymnasium.spaces.Discrete)
     model = Model(env.single_observation_space.n, env.single_action_space.n)

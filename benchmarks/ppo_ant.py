@@ -34,15 +34,15 @@ if __name__ == '__main__':
         device = torch.device('cpu')
     print('device', device)
 
-    env = gymnasium.vector.make(
+    env = gymnasium.make_vec(
         'Ant-v4', num_envs=1,
         wrappers=[
-            lambda env: gymnasium.wrappers.RecordEpisodeStatistics(env), # type: ignore
-            lambda env: gymnasium.wrappers.ClipAction(env), # type: ignore
-            lambda env: gymnasium.wrappers.NormalizeObservation(env), # type: ignore
-            lambda env: gymnasium.wrappers.TransformObservation(env, lambda obs: np.clip(obs, -10, 10)), # type: ignore
-            lambda env: gymnasium.wrappers.NormalizeReward(env, gamma=0.99), # type: ignore
-            lambda env: gymnasium.wrappers.TransformReward(env, lambda reward: np.clip(reward, -10, 10)), # type: ignore
+            lambda env: gymnasium.wrappers.RecordEpisodeStatistics(env),
+            lambda env: gymnasium.wrappers.ClipAction(env),
+            lambda env: gymnasium.wrappers.NormalizeObservation(env),
+            lambda env: gymnasium.wrappers.TransformObservation(env, lambda obs: np.clip(obs, -10, 10), observation_space=None),
+            lambda env: gymnasium.wrappers.NormalizeReward(env, gamma=0.99),
+            lambda env: gymnasium.wrappers.TransformReward(env, lambda reward: np.clip(reward, -10, 10)),
         ]
     )
     assert isinstance(env.single_observation_space, gymnasium.spaces.Box)

@@ -1,8 +1,9 @@
-from typing import Sequence, Iterable, Union, Tuple, Mapping
+from typing import Sequence
 
 import gymnasium
 import numpy as np
 import torch
+from torch.types import _size
 
 def recursive_zip(*args):
     """
@@ -70,10 +71,62 @@ def action_dist_discrete(net_output, n=None):
     return dist, dist.log_prob
 
 
+class TransformedTensor(torch.Tensor):
+    # Save the untransformed value for log_prob. We run into numerical issues in SAC without this.
+    untransformed_value: torch.Tensor
+
+
+class SquashedGaussian(torch.distributions.Distribution):
+    def __init__(self, loc, scale, low, high, log_prob_epsilon=1e-6):
+        self.normal = torch.distributions.Normal(loc, scale)
+        device = loc.device
+        self._scale2 = torch.tensor((high - low) / 2, device=device)
+        self._bias2 = torch.tensor((high + low) / 2, device=device)
+        self._log_prob_epsilon = log_prob_epsilon
+
+    def sample(self, sample_shape: _size = torch.Size()):
+        x = self.normal.sample(sample_shape)
+        s = self._scale2
+        b = self._bias2
+        output = torch.tanh(x) * s + b
+        output = TransformedTensor(output)
+        output.untransformed_value = x
+        return output
+
+    def rsample(self, sample_shape: _size = torch.Size()):
+        x = self.normal.rsample(sample_shape)
+        s = self._scale2
+        b = self._bias2
+        output = torch.tanh(x) * s + b
+        output = TransformedTensor(output)
+        output.untransformed_value = x
+        return output
+
+    def log_prob(self, value) -> torch.Tensor:
+        if isinstance(value, TransformedTensor):
+            untransformed_value = value.untransformed_value
+        else:
+            # Note: Applying the transformation and inverting it can lead to numerical issues. This path exists as a fallback, but it should be avoided if possible.
+            untransformed_value = (torch.atanh((value - self._bias2) / self._scale2))
+        log_prob = self.normal.log_prob(untransformed_value) - torch.log(self._scale2 * (1 - untransformed_value.tanh()**2) + self._log_prob_epsilon)
+        return log_prob
+    
+    def entropy(self) -> torch.Tensor:
+        # TODO
+        return self.normal.entropy() * 0
+
+
 def action_dist_continuous(net_output, n=None):
     action_mean = net_output['action_mean'][:n]
     action_logstd = net_output['action_logstd'][:n].clamp(-10, 10)
     dist = torch.distributions.Normal(action_mean, action_logstd.exp())
+    return dist, lambda x: dist.log_prob(x).sum(-1)
+
+
+def action_dist_continuous_squashed(net_output, n, low, high):
+    action_mean = net_output['action_mean'][:n]
+    action_logstd = net_output['action_logstd'][:n].clamp(-10, 10)
+    dist = SquashedGaussian(action_mean, action_logstd.exp(), low, high)
     return dist, lambda x: dist.log_prob(x).sum(-1)
 
 
@@ -83,11 +136,22 @@ def action_dist_binomial(net_output, n=None):
     return dist, lambda x: dist.log_prob(x).sum(-1)
 
 
-def get_action_dist_function(action_space: gymnasium.Space):
+def get_action_dist_function(action_space: gymnasium.Space, config={}):
+    """
+    Return a function that takes the network output and returns a distribution and a log probability function.
+
+    Args:
+        action_space: gymnasium.Space
+        config: dict
+            Used to determine the type of action distribution for different action spaces. For now, only continuous action spaces can be configured. If you want to use a squashed Gaussian distribution for continuous action spaces, set config = {'box': 'squashed'}. Otherwise, it will use a normal Gaussian distribution with clipped standard deviation by default.
+    """
     if isinstance(action_space, gymnasium.spaces.Discrete):
         return action_dist_discrete
     elif isinstance(action_space, gymnasium.spaces.Box):
-        return action_dist_continuous
+        if config.get('box') == 'squashed':
+            return lambda net_output, n=None: action_dist_continuous_squashed(net_output, n, action_space.low, action_space.high)
+        else:
+            return action_dist_continuous
     elif isinstance(action_space, gymnasium.spaces.MultiBinary):
         return action_dist_binomial
     else:

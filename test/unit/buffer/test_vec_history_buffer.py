@@ -6,6 +6,7 @@ from frankenstein.buffer.vec_history import VecHistoryBuffer as Buffer
 
 
 def test_max_len_0():
+    """ It should not allow creation of a buffer with 0 capacity. """
     with pytest.raises(Exception):
         Buffer(
             num_envs=1,
@@ -14,6 +15,7 @@ def test_max_len_0():
 
 
 def test_num_envs_0():
+    """ It should not allow creation of a buffer with no environments. """
     with pytest.raises(Exception):
         Buffer(
             num_envs=0,
@@ -29,472 +31,477 @@ def test_1_env():
     buffer.append_obs(obs=np.array([[1, 2, 3]]))
     buffer.append_action(action=np.array([0]))
     buffer.append_obs(
-        obs=np.array([[1, 2, 3]])+1, reward=np.array([0]), terminal=np.array([False]))
+        obs=np.array([[1, 2, 3]])+1, reward=np.array([0]), terminated=np.array([False]))
     buffer.append_action(action=np.array([1]))
     buffer.append_obs(
-        obs=np.array([[1, 2, 3]])+2, reward=np.array([0]), terminal=np.array([False]))
+        obs=np.array([[1, 2, 3]])+2, reward=np.array([0]), terminated=np.array([False]))
 
-    seq_len, batch_size, obs_len = buffer.obs.shape
-    assert seq_len == 3
-    assert batch_size == 1
-    assert obs_len == 3
-    assert (buffer.obs == torch.tensor([[[1, 2, 3]], [[2, 3, 4]], [[3, 4, 5]]])).all()
+    assert len(buffer.transitions) == 2
 
-    seq_len, batch_size = buffer.reward.shape
-    assert seq_len == 3
-    assert batch_size == 1
-    assert (buffer.reward == torch.tensor([[0], [0], [0]])).all()
+    transition = buffer.transitions[0]
+    assert (transition.obs == torch.tensor([[1, 2, 3]])).all()
+    assert (transition.next_obs == torch.tensor([[2, 3, 4]])).all()
 
-    seq_len, batch_size = buffer.terminal.shape
-    assert seq_len == 3
-    assert batch_size == 1
-    assert (buffer.terminal == torch.tensor([[False], [False], [False]])).all()
-
-    seq_len, batch_size = buffer.action.shape
-    assert seq_len == 2
-    assert batch_size == 1
-    assert (buffer.action == torch.tensor([[0], [1]])).all()
+    transition = buffer.transitions[1]
+    assert (transition.obs == torch.tensor([[2, 3, 4]])).all()
+    assert (transition.next_obs == torch.tensor([[3, 4, 5]])).all()
 
 
-def test_episode_termination():
+# Test data validation
+
+def test_obs_too_long():
+    """ If the length of the inputs don't match up with the `num_envs` parameter, then it should raise an error. """
+    buffer = Buffer(
+        num_envs=4,
+        max_len=10,
+    )
+    obs = np.array([0]*5)
+    action = np.array([0]*4)
+    reward = np.array([0.]*4)
+
+    with pytest.raises(Exception):
+        buffer.append_obs(obs=obs)
+
+
+def test_action_too_long():
+    """ If the length of the inputs don't match up with the `num_envs` parameter, then it should raise an error. """
+    buffer = Buffer(
+        num_envs=4,
+        max_len=10,
+    )
+    obs = np.array([0]*4)
+    action = np.array([0]*5)
+
+    buffer.append_obs(obs=obs)
+    with pytest.raises(Exception):
+        buffer.append_action(action=action)
+
+
+def test_reward_too_long():
+    """ If the length of the inputs don't match up with the `num_envs` parameter, then it should raise an error. """
+    buffer = Buffer(
+        num_envs=4,
+        max_len=10,
+    )
+    obs = np.array([0]*4)
+    action = np.array([0]*4)
+    reward = np.array([0.]*5)
+    terminated = np.array([False]*4)
+    truncated = np.array([False]*4)
+
+    buffer.append_obs(obs=obs)
+    buffer.append_action(action=action)
+    with pytest.raises(Exception):
+        buffer.append_obs(obs=obs, reward=reward, terminated=terminated, truncated=truncated)
+
+
+def test_terminated_too_long():
+    """ If the length of the inputs don't match up with the `num_envs` parameter, then it should raise an error. """
+    buffer = Buffer(
+        num_envs=4,
+        max_len=10,
+    )
+    obs = np.array([0]*4)
+    action = np.array([0]*4)
+    reward = np.array([0.]*4)
+    terminated = np.array([False]*5)
+    truncated = np.array([False]*4)
+
+    buffer.append_obs(obs=obs)
+    buffer.append_action(action=action)
+    with pytest.raises(Exception):
+        buffer.append_obs(obs=obs, reward=reward, terminated=terminated, truncated=truncated)
+
+
+def test_truncated_too_long():
+    """ If the length of the inputs don't match up with the `num_envs` parameter, then it should raise an error. """
+    buffer = Buffer(
+        num_envs=4,
+        max_len=10,
+    )
+    obs = np.array([0]*4)
+    action = np.array([0]*4)
+    reward = np.array([0.]*4)
+    terminated = np.array([False]*4)
+    truncated = np.array([False]*5)
+
+    buffer.append_obs(obs=obs)
+    buffer.append_action(action=action)
+    with pytest.raises(Exception):
+        buffer.append_obs(obs=obs, reward=reward, terminated=terminated, truncated=truncated)
+
+
+def test_dict_obs_validation():
+    """ If a dict is used as an observation, it should check that all elements of the dict match the number of environments in the first dimension. """
+    buffer = Buffer(
+        num_envs=4,
+        max_len=10,
+    )
+    obs = {'a': np.array([0]*4), 'b': np.array([0]*4)} # Each element is size 4, so this should not error.
+    buffer.append_obs(obs=obs)
+
+
+# Test transition count
+
+
+def test_transition_count_termination_immediate():
+    """ Check that the transition is available if the episode terminates on the first step. """
     buffer = Buffer(
         num_envs=1,
         max_len=10,
     )
-    buffer.append_obs(obs=np.array([0]))
-    buffer.append_action(action=np.array([10]))
-    buffer.append_obs(obs=np.array([1]), reward=np.array([0]), terminal=np.array([False]))
-    buffer.append_action(action=np.array([11]))
-    buffer.append_obs(obs=np.array([2]), reward=np.array([0]), terminal=np.array([True]))
-    buffer.append_action(action=np.array([5]))
+    obs = np.array([0])
+    action = np.array([0])
+    reward = np.array([0.])
 
-    buffer.append_obs(obs=np.array([0]), reward=np.array([0]), terminal=np.array([False]))
-    buffer.append_action(action=np.array([10]))
-    buffer.append_obs(obs=np.array([1]), reward=np.array([0]), terminal=np.array([False]))
-    buffer.append_action(action=np.array([11]))
-    buffer.append_obs(obs=np.array([2]), reward=np.array([0]), terminal=np.array([True]))
+    assert len(buffer.transitions) == 0
 
-    buffer.action == torch.tensor([[10], [11], [5], [10], [11]])
-    buffer.terminal == torch.tensor([[False], [False], [True], [False], [False], [True]])
+    buffer.append_obs(obs=obs)
+    buffer.append_action(action=action)
+    buffer.append_obs(obs=obs, reward=reward, terminated=np.array([True]))
+
+    assert len(buffer.transitions) == 1
 
 
-def test_exceed_max_len():
-    buffer = Buffer(
-        num_envs=1,
-        max_len=1,
-    )
-
-    buffer.append_obs(obs=np.array([[1, 2, 3]]))
-    buffer.append_action(action=np.array([0]))
-    buffer.append_obs(
-        obs=np.array([[1, 2, 3]])+1, reward=np.array([0]), terminal=np.array([False]))
-    buffer.append_action(action=np.array([1]))
-    buffer.append_obs(
-        obs=np.array([[1, 2, 3]])+2, reward=np.array([0]), terminal=np.array([False]))
-
-    seq_len, batch_size, obs_len = buffer.obs.shape
-    assert seq_len == 2
-    assert batch_size == 1
-    assert obs_len == 3
-    assert (buffer.obs == torch.tensor([[[2, 3, 4]], [[3, 4, 5]]])).all()
-
-    seq_len, batch_size = buffer.reward.shape
-    assert seq_len == 2
-    assert batch_size == 1
-    assert (buffer.reward == torch.tensor([[0], [0]])).all()
-
-    seq_len, batch_size = buffer.terminal.shape
-    assert seq_len == 2
-    assert batch_size == 1
-    assert (buffer.terminal == torch.tensor([[False], [False]])).all()
-
-
-def test_clear():
+@pytest.mark.parametrize('num_steps', [1,2,3])
+def test_transition_count_termination_at_end(num_steps):
+    """ Check that the number of transitions is correct when the episode is terminated only at the end. """
     buffer = Buffer(
         num_envs=1,
         max_len=10,
     )
-    buffer.append_obs(obs=np.array([0]))
-    buffer.append_action(action=np.array([10]))
-    buffer.append_obs(obs=np.array([1]), reward=np.array([0]), terminal=np.array([False]))
-    buffer.append_action(action=np.array([11]))
-    buffer.append_obs(obs=np.array([2]), reward=np.array([0]), terminal=np.array([True]))
-    buffer.append_action(action=np.array([5]))
-    buffer.append_obs(obs=np.array([0]))
-    buffer.append_action(action=np.array([10]))
-    buffer.append_obs(obs=np.array([1]), reward=np.array([0]), terminal=np.array([False]))
-    buffer.append_action(action=np.array([11]))
-    buffer.append_obs(obs=np.array([2]), reward=np.array([0]), terminal=np.array([True]))
+    obs = np.array([0])
+    action = np.array([0])
+    reward = np.array([0.])
 
-    buffer.obs == torch.tensor([[0], [1], [2], [0], [1], [2]])
-    buffer.action == torch.tensor([[10], [11], [5], [10], [11]])
-    buffer.terminal == torch.tensor([[False], [False], [True], [False], [False], [True]])
-    buffer.reward == torch.tensor([[0], [0], [0], [0], [0], [0]])
+    assert len(buffer.transitions) == 0
 
-    buffer.clear()
+    buffer.append_obs(obs=obs)
+    for _ in range(num_steps-1):
+        buffer.append_action(action=action)
+        buffer.append_obs(obs=obs, reward=reward, terminated=np.array([False]))
+    buffer.append_action(action=action)
+    buffer.append_obs(obs=obs, reward=reward, terminated=np.array([True]))
 
-    # It should keep the last observation/reward/terminal because it's part of the next transition. The action history should be cleared.
-    buffer.obs == torch.tensor([[2]])
-    buffer.action == torch.tensor([])
-    buffer.terminal == torch.tensor([[True]])
-    buffer.reward == torch.tensor([[0]])
+    assert len(buffer.transitions) == num_steps
 
 
-def test_full_clear():
+def test_transition_count_termination_in_middle():
+    """ Check that the correct transitions are available if the episode terminates in the middle."""
     buffer = Buffer(
         num_envs=1,
         max_len=10,
     )
-    buffer.append_obs(obs=np.array([0]))
-    buffer.append_action(action=np.array([10]))
-    buffer.append_obs(obs=np.array([1]), reward=np.array([0]), terminal=np.array([False]))
-    buffer.append_action(action=np.array([11]))
-    buffer.append_obs(obs=np.array([2]), reward=np.array([0]), terminal=np.array([True]))
-    buffer.append_action(action=np.array([5]))
-    buffer.append_obs(obs=np.array([0]))
-    buffer.append_action(action=np.array([10]))
-    buffer.append_obs(obs=np.array([1]), reward=np.array([0]), terminal=np.array([False]))
-    buffer.append_action(action=np.array([11]))
-    buffer.append_obs(obs=np.array([2]), reward=np.array([0]), terminal=np.array([True]))
+    obs = np.array([0])
+    action = np.array([0])
+    reward = np.array([0.])
 
-    buffer.obs == torch.tensor([[0], [1], [2], [0], [1], [2]])
-    buffer.action == torch.tensor([[10], [11], [5], [10], [11]])
-    buffer.terminal == torch.tensor([[False], [False], [True], [False], [False], [True]])
-    buffer.reward == torch.tensor([[0], [0], [0], [0], [0], [0]])
+    assert len(buffer.transitions) == 0
 
-    buffer.clear(fullclear=True)
+    buffer.append_obs(obs=obs)
+    buffer.append_action(action=action)
+    buffer.append_obs(obs=obs, reward=reward, terminated=np.array([True]))
 
-    assert buffer.obs_history == []
-    assert buffer.action_history == []
-    assert buffer.reward_history == []
-    assert buffer.terminal_history == []
-    assert buffer.misc_history == []
+    assert len(buffer.transitions) == 1
+
+    buffer.append_action(action=action)
+    buffer.append_obs(obs=obs, reward=reward, terminated=np.array([False]))
+
+    assert len(buffer.transitions) == 1
+
+    buffer.append_action(action=action)
+    buffer.append_obs(obs=obs, reward=reward, terminated=np.array([False]))
+
+    assert len(buffer.transitions) == 2
+
+    buffer.append_action(action=action)
+    buffer.append_obs(obs=obs, reward=reward, terminated=np.array([False]))
+
+    assert len(buffer.transitions) == 3
 
 
-# Testing various data types
-
-def test_numpy_obs_int_action():
+def test_transition_count_overflow():
+    """ Check that the transition count is correct when the buffer overflows and loops around. """
     buffer = Buffer(
-        num_envs=2,
+        num_envs=1,
         max_len=3,
     )
 
-    buffer.append_obs(obs=np.array([[1, 2, 3], [1, 2, 3]]))
+    obs = np.array([0])
+    action = np.array([0])
+    reward = np.array([0.])
+
+    assert len(buffer.transitions) == 0
+
+    buffer.append_obs(obs=obs)
+    buffer.append_action(action=action)
+    buffer.append_obs(obs=obs, reward=reward, terminated=np.array([False]))
+
+    assert len(buffer.transitions) == 1 # A A
+
+    buffer.append_action(action=action)
+    buffer.append_obs(obs=obs, reward=reward, terminated=np.array([False]))
+
+    assert len(buffer.transitions) == 2 # A A A
+
+    buffer.append_action(action=action)
+    buffer.append_obs(obs=obs, reward=reward, terminated=np.array([True]))
+
+    assert len(buffer.transitions) == 2 # A A A
+
+    buffer.append_action(action=action)
+    buffer.append_obs(obs=obs, reward=reward, terminated=np.array([False]))
+
+    assert len(buffer.transitions) == 1 # A A B
+
+    buffer.append_action(action=action)
+    buffer.append_obs(obs=obs, reward=reward, terminated=np.array([False]))
+
+    assert len(buffer.transitions) == 1 # A B B
+
+    buffer.append_action(action=action)
+    buffer.append_obs(obs=obs, reward=reward, terminated=np.array([False]))
+
+    assert len(buffer.transitions) == 2 # B B B
+
+
+def test_transition_count_vec():
+    """ Check that the transition count is correct if only one environment terminates. """
+    buffer = Buffer(
+        num_envs=3,
+        max_len=10,
+    )
+
+    obs = np.array([0,0,0])
+    action = np.array([0,0,0])
+    reward = np.array([0.,0.,0.])
+
+    assert len(buffer.transitions) == 0
+
+    buffer.append_obs(obs=obs)
+    buffer.append_action(action=action)
+    buffer.append_obs(obs=obs, reward=reward, terminated=np.array([False,False,False]))
+
+    assert len(buffer.transitions) == 3
+
+    buffer.append_action(action=action)
+    buffer.append_obs(obs=obs, reward=reward, terminated=np.array([False,False,False]))
+
+    assert len(buffer.transitions) == 3+3
+
+    buffer.append_action(action=action)
+    buffer.append_obs(obs=obs, reward=reward, terminated=np.array([False,False,True]))
+
+    assert len(buffer.transitions) == 3+3+3
+
+    buffer.append_action(action=action)
+    buffer.append_obs(obs=obs, reward=reward, terminated=np.array([False,False,False]))
+
+    assert len(buffer.transitions) == 3+3+3+2
+
+    buffer.append_action(action=action)
+    buffer.append_obs(obs=obs, reward=reward, terminated=np.array([False,False,False]))
+
+    assert len(buffer.transitions) == 3+3+3+2+3
+
+
+def test_transition_count_overflow_vec():
+    """ Check that the transition count is correct when the buffer overflows and loops around. """
+    buffer = Buffer(
+        num_envs=3,
+        max_len=3,
+    )
+
+    obs = np.array([0,0,0])
+    action = np.array([0,0,0])
+    reward = np.array([0.,0.,0.])
+
+    assert len(buffer.transitions) == 0
+
+    buffer.append_obs(obs=obs)
+    buffer.append_action(action=action)
+    buffer.append_obs(obs=obs, reward=reward, terminated=np.array([False,False,False]))
+
+    assert len(buffer.transitions) == 3
+
+    buffer.append_action(action=action)
+    buffer.append_obs(obs=obs, reward=reward, terminated=np.array([False,False,False]))
+
+    assert len(buffer.transitions) == 3+3
+
+    buffer.append_action(action=action)
+    buffer.append_obs(obs=obs, reward=reward, terminated=np.array([False,False,True]))
+
+    assert len(buffer.transitions) == 3+3
+
+    buffer.append_action(action=action)
+    buffer.append_obs(obs=obs, reward=reward, terminated=np.array([False,False,False]))
+
+    assert len(buffer.transitions) == 3+2
+
+    buffer.append_action(action=action)
+    buffer.append_obs(obs=obs, reward=reward, terminated=np.array([False,False,False]))
+
+    assert len(buffer.transitions) == 2+3
+
+
+# Test transitions
+
+
+def test_transition_out_of_bounds():
+    ...
+
+
+def test_transition_one_transition():
+    """ """
+    buffer = Buffer(
+        num_envs=1,
+        max_len=10,
+    )
+
+    buffer.append_obs(obs=np.array([[1, 2, 3]])+0)
+    buffer.append_action(action=np.array([0]))
+    buffer.append_obs(obs=np.array([[1, 2, 3]])+1, reward=np.array([0]), terminated=np.array([False]))
+
+    transition = buffer.transitions[0]
+    assert (transition.obs == torch.tensor([[1, 2, 3]])).all()
+    assert (transition.next_obs == torch.tensor([[2, 3, 4]])).all()
+    assert (transition.reward == torch.tensor([0])).all()
+
+    buffer.append_action(action=np.array([0]))
+
+
+def test_transition_vec():
+    buffer = Buffer(
+        num_envs=2,
+        max_len=10,
+    )
+    
+    obs = np.array([[1, 1], [2, 2]])
+
+    buffer.append_obs(obs=obs)
+
     buffer.append_action(action=np.array([0, 0]))
-    buffer.append_obs(
-        obs=np.array([[1, 2, 3], [1, 2, 3]])+1, reward=np.array([0, 0]), terminal=np.array([False, False]))
+    buffer.append_obs(obs=obs, reward=np.array([0, 0]), terminated=np.array([False, False]))
+
     buffer.append_action(action=np.array([1, 1]))
-    buffer.append_obs(
-        obs=np.array([[1, 2, 3], [1, 2, 3]])+2, reward=np.array([0, 0]), terminal=np.array([False, False]))
+    buffer.append_obs(obs=obs, reward=np.array([0, 0]), terminated=np.array([False, False]))
 
-    assert (buffer.obs[:, 0, :] == torch.tensor([[1, 2, 3], [2, 3, 4], [3, 4, 5]])).all()
-    assert (buffer.action[:, 0] == torch.tensor([0, 1])).all()
-    assert (buffer.obs[:, 1, :] == torch.tensor([[1, 2, 3], [2, 3, 4], [3, 4, 5]])).all()
-    assert (buffer.action[:, 1] == torch.tensor([0, 1])).all()
+    buffer.append_action(action=np.array([2, 2]))
+    buffer.append_obs(obs=obs, reward=np.array([0, 0]), terminated=np.array([False, False]))
+
+    transition = buffer.transitions[0]
+    assert (transition.obs == torch.tensor([[1, 1]])).all()
+    assert (transition.next_obs == torch.tensor([[1, 1]])).all()
+    assert (transition.action == torch.tensor([0])).all()
+
+    transition = buffer.transitions[2]
+    assert (transition.obs == torch.tensor([[1, 1]])).all()
+    assert (transition.next_obs == torch.tensor([[1, 1]])).all()
+    assert (transition.action == torch.tensor([2])).all()
+
+    transition = buffer.transitions[3]
+    assert (transition.obs == torch.tensor([[2, 2]])).all()
+    assert (transition.next_obs == torch.tensor([[2, 2]])).all()
+    assert (transition.action == torch.tensor([0])).all()
+
+    transition = buffer.transitions[5]
+    assert (transition.obs == torch.tensor([[2, 2]])).all()
+    assert (transition.next_obs == torch.tensor([[2, 2]])).all()
+    assert (transition.action == torch.tensor([2])).all()
 
 
-def test_numpy_obs_numpy_action():
+def test_transition_with_termination_vec():
     buffer = Buffer(
         num_envs=2,
-        max_len=3,
+        max_len=10,
     )
+    
+    obs = np.array([[1, 1], [2, 2]])
 
-    buffer.append_obs(obs=np.array([[1, 2, 3], [1, 2, 3]]))
-    buffer.append_action(action=np.array([[0.1, 0.2], [0.1, 0.2]], dtype=np.float32))
-    buffer.append_obs(
-        obs=np.array([[1, 2, 3], [1, 2, 3]])+1, reward=np.array([0, 0]), terminal=np.array([False, False]))
-    buffer.append_action(action=np.array([[0.2, 0.3], [0.2, 0.3]], dtype=np.float32))
-    buffer.append_obs(
-        obs=np.array([[1, 2, 3], [1, 2, 3]])+2, reward=np.array([0, 0]), terminal=np.array([False, False]))
-    buffer.append_action(action=np.array([[0.3, 0.4], [0.3, 0.4]], dtype=np.float32))
+    buffer.append_obs(obs=obs)
 
-    assert (buffer.obs[:, 0, :] == torch.tensor([[1, 2, 3], [2, 3, 4], [3, 4, 5]])).all()
-    assert torch.isclose(
-        buffer.action[:, 0],
-        torch.tensor([[.1, .2], [.2, .3], [.3, .4]])
-    ).all()
-    assert (buffer.obs[:, 1, :] == torch.tensor([[1, 2, 3], [2, 3, 4], [3, 4, 5]])).all()
-    assert torch.isclose(
-        buffer.action[:, 1],
-        torch.tensor([[.1, .2], [.2, .3], [.3, .4]])
-    ).all()
-
-
-def test_torch_obs_torch_action():
-    buffer = Buffer(
-        num_envs=2,
-        max_len=3,
-    )
-
-    buffer.append_obs(obs=torch.tensor([[1, 2, 3], [1, 2, 3]]))
-    buffer.append_action(action=torch.tensor([[0.1, 0.2], [0.1, 0.2]]))
-    buffer.append_obs(
-        obs=torch.tensor([[1, 2, 3], [1, 2, 3]])+1, reward=np.array([0, 0]), terminal=np.array([False, False]))
-    buffer.append_action(action=torch.tensor([[0.2, 0.3], [0.2, 0.3]]))
-    buffer.append_obs(
-        obs=torch.tensor([[1, 2, 3], [1, 2, 3]])+2, reward=np.array([0, 0]), terminal=np.array([False, False]))
-    buffer.append_action(action=torch.tensor([[0.3, 0.4], [0.3, 0.4]]))
-
-    assert (buffer.obs[:, 0, :] == torch.tensor([[1, 2, 3], [2, 3, 4], [3, 4, 5]])).all()
-    assert torch.isclose(
-        buffer.action[:, 0],
-        torch.tensor([[.1, .2], [.2, .3], [.3, .4]])
-    ).all()
-    assert (buffer.obs[:, 1, :] == torch.tensor([[1, 2, 3], [2, 3, 4], [3, 4, 5]])).all()
-    assert torch.isclose(
-        buffer.action[:, 1],
-        torch.tensor([[.1, .2], [.2, .3], [.3, .4]])
-    ).all()
-
-
-def test_torch_obs_torch_tuple_action():
-    buffer = Buffer(
-        num_envs=2,
-        max_len=3,
-    )
-
-    buffer.append_obs(obs=torch.tensor([[1, 2, 3], [1, 2, 3]]))
-    buffer.append_action(
-            action=(torch.tensor([0.1, 0.2]), torch.tensor([0.1, 0.2]))
-    )
-    buffer.append_obs(
-        obs=torch.tensor([[1, 2, 3], [1, 2, 3]])+1, reward=np.array([0, 0]), terminal=np.array([False, False]))
-    buffer.append_action(
-            action=(torch.tensor([0.2, 0.3]), torch.tensor([0.2, 0.3]))
-    )
-    buffer.append_obs(
-        obs=torch.tensor([[1, 2, 3], [1, 2, 3]])+2, reward=np.array([0, 0]), terminal=np.array([False, False]))
-    buffer.append_action(
-            action=(torch.tensor([0.3, 0.4]), torch.tensor([0.3, 0.4]))
-    )
-
-    assert (buffer.obs[:, 0, :] == torch.tensor([[1, 2, 3], [2, 3, 4], [3, 4, 5]])).all()
-    assert torch.isclose(
-        buffer.action[0],
-        torch.tensor([[.1, .2], [.2, .3], [.3, .4]])
-    ).all()
-    assert (buffer.obs[:, 1, :] == torch.tensor([[1, 2, 3], [2, 3, 4], [3, 4, 5]])).all()
-    assert torch.isclose(
-        buffer.action[1],
-        torch.tensor([[.1, .2], [.2, .3], [.3, .4]])
-    ).all()
-
-
-def test_dict_obs_dict_action():
-    buffer = Buffer(
-        num_envs=2,
-        max_len=3,
-    )
-
-    buffer.append_obs(obs={'obs': np.array([[1, 2, 3], [1, 2, 3]])})
-    buffer.append_action(action={'a': np.array([0, 0])})
-    buffer.append_obs(
-        obs={'obs': np.array([[1, 2, 3], [1, 2, 3]])+1}, reward=np.array([0, 0]), terminal=np.array([False, False]))
-    buffer.append_action(action={'a': np.array([1, 1])})
-    buffer.append_obs(
-        obs={'obs': np.array([[1, 2, 3], [1, 2, 3]])+2}, reward=np.array([0, 0]), terminal=np.array([False, False]))
-
-    assert (buffer.obs['obs'][:, 0, :] == torch.tensor([[1, 2, 3], [2, 3, 4], [3, 4, 5]])).all()
-    assert (buffer.action['a'][:, 0] == torch.tensor([0, 1])).all()
-    assert (buffer.obs['obs'][:, 1, :] == torch.tensor([[1, 2, 3], [2, 3, 4], [3, 4, 5]])).all()
-    assert (buffer.action['a'][:, 1] == torch.tensor([0, 1])).all()
-
-# Misc data
-
-def test_no_misc():
-    buffer = Buffer(
-        num_envs=1,
-        max_len=3,
-    )
-    buffer.append_obs(obs=np.array([0]))
-    buffer.append_action(action=np.array([0]))
-    buffer.append_obs(
-        obs=np.array([0]), reward=np.array([0]),
-        terminal=np.array([False]))
-    buffer.append_action(action=np.array([0]))
-    buffer.append_obs(
-        obs=np.array([0]), reward=np.array([0]),
-        terminal=np.array([False]))
-
-    assert buffer.misc is None
-
-
-def test_misc_list_of_int():
-    buffer = Buffer(
-        num_envs=1,
-        max_len=3,
-    )
-    buffer.append_obs(obs=np.array([0]), misc=[0])
-    buffer.append_action(action=np.array([0]))
-    buffer.append_obs(
-        obs=np.array([0]), reward=np.array([0]),
-        terminal=np.array([False]), misc=[1])
-    buffer.append_action(action=np.array([0]))
-    buffer.append_obs(
-        obs=np.array([0]), reward=np.array([0]),
-        terminal=np.array([False]), misc=[2])
-
-    assert isinstance(buffer.misc, torch.Tensor)
-    seq_len, batch_size = buffer.misc.shape
-    assert seq_len == 3
-    assert batch_size == 1
-    assert (buffer.misc == torch.tensor([[0], [1], [2]])).all()
-
-
-def test_misc_list_of_int_2_envs():
-    buffer = Buffer(
-        num_envs=2,
-        max_len=3,
-    )
-    buffer.append_obs(obs=np.array([0, 0]), misc=[0, 0])
     buffer.append_action(action=np.array([0, 0]))
-    buffer.append_obs(
-        obs=np.array([0, 0]), reward=np.array([0, 0]),
-        terminal=np.array([False, False]), misc=[1, 1])
-    buffer.append_action(action=np.array([0]))
-    buffer.append_obs(
-        obs=np.array([0, 0]), reward=np.array([0, 0]),
-        terminal=np.array([False, False]), misc=[2, 2])
+    buffer.append_obs(obs=obs, reward=np.array([0, 0]), terminated=np.array([False, False]))
 
-    assert isinstance(buffer.misc, torch.Tensor)
-    seq_len, batch_size = buffer.misc.shape
-    assert seq_len == 3
-    assert batch_size == 2
-    assert (buffer.misc == torch.tensor([[0], [1], [2]])).all()
+    buffer.append_action(action=np.array([1, 1]))
+    buffer.append_obs(obs=obs, reward=np.array([0, 0]), terminated=np.array([True, False]))
 
+    buffer.append_action(action=np.array([-1, 2]))
+    buffer.append_obs(obs=obs, reward=np.array([0, 0]), terminated=np.array([False, False]))
 
-def test_misc_list_of_dict():
-    buffer = Buffer(
-        num_envs=1,
-        max_len=3,
-    )
+    transition = buffer.transitions[0]
+    assert (transition.obs == torch.tensor([[1, 1]])).all()
+    assert (transition.next_obs == torch.tensor([[1, 1]])).all()
+    assert (transition.action == torch.tensor([0])).all()
 
-    buffer.append_obs(obs=np.array([0]), misc=[{'foo': 0}])
-    buffer.append_action(action=np.array([0]))
-    buffer.append_obs(
-        obs=np.array([0]), reward=np.array([0]),
-        terminal=np.array([False]), misc=[{'foo': 1}])
-    buffer.append_action(action=np.array([0]))
-    buffer.append_obs(
-        obs=np.array([0]), reward=np.array([0]),
-        terminal=np.array([False]), misc=[{'foo': 2}])
+    transition = buffer.transitions[1]
+    assert (transition.obs == torch.tensor([[1, 1]])).all()
+    assert (transition.next_obs == torch.tensor([[1, 1]])).all()
+    assert (transition.action == torch.tensor([1])).all()
 
-    assert isinstance(buffer.misc, dict)
-    assert 'foo' in buffer.misc
-    seq_len, batch_size = buffer.misc['foo'].shape
-    assert seq_len == 3
-    assert batch_size == 1
-    assert (buffer.misc['foo'] == torch.tensor([[0], [1], [2]])).all()
+    transition = buffer.transitions[2]
+    assert (transition.obs == torch.tensor([[2, 2]])).all()
+    assert (transition.next_obs == torch.tensor([[2, 2]])).all()
+    assert (transition.action == torch.tensor([0])).all()
+
+    transition = buffer.transitions[4]
+    assert (transition.obs == torch.tensor([[2, 2]])).all()
+    assert (transition.next_obs == torch.tensor([[2, 2]])).all()
+    assert (transition.action == torch.tensor([2])).all()
 
 
-def test_misc_list_of_dict_2_envs():
+def test_transition_batch():
     buffer = Buffer(
         num_envs=2,
-        max_len=3,
+        max_len=10,
     )
+    
+    obs = np.array([[1, 1], [2, 2]])
 
-    buffer.append_obs(obs=np.array([0]), misc=[{'foo': 0}, {'foo': 1}])
-    buffer.append_action(action=np.array([0]))
-    buffer.append_obs(
-        obs=np.array([0]), reward=np.array([0]),
-        terminal=np.array([False]), misc=[{'foo': 1}, {'foo': 2}])
-    buffer.append_action(action=np.array([0]))
-    buffer.append_obs(
-        obs=np.array([0]), reward=np.array([0]),
-        terminal=np.array([False]), misc=[{'foo': 2}, {'foo': 3}])
+    buffer.append_obs(obs=obs)
 
-    assert isinstance(buffer.misc, dict)
-    assert 'foo' in buffer.misc
-    seq_len, batch_size = buffer.misc['foo'].shape
-    assert seq_len == 3
-    assert batch_size == 2
-    assert (buffer.misc['foo'] == torch.tensor([[0, 1], [1, 2], [2, 3]])).all()
+    buffer.append_action(action=np.array([0, 0]))
+    buffer.append_obs(obs=obs, reward=np.array([0, 0]), terminated=np.array([False, False]))
+
+    buffer.append_action(action=np.array([1, 1]))
+    buffer.append_obs(obs=obs, reward=np.array([0, 0]), terminated=np.array([True, False]))
+
+    buffer.append_action(action=np.array([-1, 2]))
+    buffer.append_obs(obs=obs, reward=np.array([0, 0]), terminated=np.array([False, False]))
+
+    batch = buffer.transitions.sample_batch(4)
+    assert batch.obs.shape == (4, 2)
+    assert batch.next_obs.shape == (4, 2)
+    assert batch.action.shape == (4,)
+    assert batch.reward.shape == (4, 1)
+    assert batch.terminated.shape == (4, 1)
+    assert batch.truncated.shape == (4, 1)
 
 
-def test_misc_nested_dict():
+@pytest.mark.skip
+def test_get_transition_performance():
+    import gymnasium
+    import timeit
+
     buffer = Buffer(
         num_envs=1,
-        max_len=3,
-    )
-    buffer.append_obs(
-        obs=np.array([0]),
-        misc=[{'foo': 0, 'bar': {'a': .1, 'b': .2}}])
-    buffer.append_action(action=np.array([0]))
-    buffer.append_obs(
-        obs=np.array([0]),
-        reward=np.array([0]),
-        terminal=np.array([False]),
-        misc=[{'foo': 1, 'bar': {'a': .3, 'b': .4}}])
-    buffer.append_action(action=np.array([0]))
-    buffer.append_obs(
-        obs=np.array([0]),
-        reward=np.array([0]),
-        terminal=np.array([False]),
-        misc=[{'foo': 2, 'bar': {'a': .5, 'b': .6}}])
-
-    assert isinstance(buffer.misc, dict)
-
-    assert 'foo' in buffer.misc
-    seq_len, batch_size = buffer.misc['foo'].shape
-    assert seq_len == 3
-    assert batch_size == 1
-    assert (buffer.misc['foo'] == torch.tensor([[0], [1], [2]])).all()
-
-    assert 'bar' in buffer.misc
-    assert isinstance(buffer.misc['bar'], dict)
-    assert buffer.misc['bar']['a'].tolist() == [[.1], [.3], [.5]]
-    assert buffer.misc['bar']['b'].tolist() == [[.2], [.4], [.6]]
-
-
-def test_misc_dict_of_tensors():
-    """
-    If we already have the misc data in batched form, then we would want to pass that data to the `VecHistoryBuffer` in the same form.
-    """
-    buffer = Buffer(
-        num_envs=1,
-        max_len=3,
+        max_len=5_000,
     )
 
-    buffer.append_obs(obs=np.array([0]), misc={'foo': torch.tensor([0])})
-    buffer.append_action(action=np.array([0]))
-    buffer.append_obs(
-        obs=np.array([0]), reward=np.array([0]),
-        terminal=np.array([False]), misc={'foo': torch.tensor([1])})
-    buffer.append_action(action=np.array([0]))
-    buffer.append_obs(
-        obs=np.array([0]), reward=np.array([0]),
-        terminal=np.array([False]), misc={'foo': torch.tensor([2])})
-
-    assert isinstance(buffer.misc, dict)
-    assert 'foo' in buffer.misc
-    seq_len, batch_size = buffer.misc['foo'].shape
-    assert seq_len == 3
-    assert batch_size == 1
-    assert (buffer.misc['foo'] == torch.tensor([[0], [1], [2]])).all()
-
-
-def test_misc_dict_of_tensors_2_envs():
-    """
-    If we already have the misc data in batched form, then we would want to pass that data to the `VecHistoryBuffer` in the same form.
-    """
-    buffer = Buffer(
-        num_envs=2,
-        max_len=3,
+    env = gymnasium.make_vec(
+        'HalfCheetah-v4', num_envs=1,
     )
+    obs, _ = env.reset()
+    buffer.append_obs(obs)
+    for _ in range(5000):
+        action = env.action_space.sample()
+        buffer.append_action(action)
+        obs, reward, term, trunc, _ = env.step(action)
+        buffer.append_obs(obs, reward, term, trunc)
 
-    buffer.append_obs(obs=np.array([0]), misc={'foo': torch.tensor([0, 1])})
-    buffer.append_action(action=np.array([0]))
-    buffer.append_obs(
-        obs=np.array([0]), reward=np.array([0]),
-        terminal=np.array([False]), misc={'foo': torch.tensor([1, 2])})
-    buffer.append_action(action=np.array([0]))
-    buffer.append_obs(
-        obs=np.array([0]), reward=np.array([0]),
-        terminal=np.array([False]), misc={'foo': torch.tensor([2, 3])})
+    fn = lambda: buffer.transitions.sample_batch(32)
+    t = timeit.timeit(fn, number=10)
+    print(t)
 
-    assert isinstance(buffer.misc, dict)
-    assert 'foo' in buffer.misc
-    seq_len, batch_size = buffer.misc['foo'].shape
-    assert seq_len == 3
-    assert batch_size == 2
-    assert (buffer.misc['foo'] == torch.tensor([[0, 1], [1, 2], [2, 3]])).all()
+    assert False

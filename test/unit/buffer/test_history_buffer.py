@@ -30,7 +30,7 @@ def test_1_transition():
 
     buffer.append_obs(obs=1)
     buffer.append_action(1)
-    buffer.append_obs(obs=2, reward=1, terminal=False)
+    buffer.append_obs(obs=2, reward=1, terminated=False)
 
     assert len(buffer.transitions) == 1
 
@@ -39,7 +39,7 @@ def test_1_transition():
     assert transition.obs == 1
     assert transition.action == 1
     assert transition.reward == 1
-    assert transition.terminal is False
+    assert transition.terminated is False
     assert transition.next_obs == 2
 
 
@@ -50,7 +50,7 @@ def test_1_transition_out_of_bounds():
 
     buffer.append_obs(obs=1)
     buffer.append_action(1)
-    buffer.append_obs(obs=2, reward=1, terminal=False)
+    buffer.append_obs(obs=2, reward=1, terminated=False)
 
     assert len(buffer.transitions) == 1
 
@@ -65,9 +65,9 @@ def test_2_transition():
 
     buffer.append_obs(obs=1)
     buffer.append_action(1)
-    buffer.append_obs(obs=2, reward=1, terminal=False)
+    buffer.append_obs(obs=2, reward=1, terminated=False)
     buffer.append_action(2)
-    buffer.append_obs(obs=3, reward=2, terminal=False)
+    buffer.append_obs(obs=3, reward=2, terminated=False)
 
     assert len(buffer.transitions) == 2
 
@@ -75,14 +75,14 @@ def test_2_transition():
     assert transition.obs == 1
     assert transition.action == 1
     assert transition.reward == 1
-    assert transition.terminal is False
+    assert transition.terminated is False
     assert transition.next_obs == 2
 
     transition = buffer.transitions[1]
     assert transition.obs == 2
     assert transition.action == 2
     assert transition.reward == 2
-    assert transition.terminal is False
+    assert transition.terminated is False
     assert transition.next_obs == 3
 
 
@@ -94,9 +94,9 @@ def test_2_transition_overflow():
 
     buffer.append_obs(obs=1)
     buffer.append_action(1)
-    buffer.append_obs(obs=2, reward=1, terminal=False)
+    buffer.append_obs(obs=2, reward=1, terminated=False)
     buffer.append_action(2)
-    buffer.append_obs(obs=3, reward=2, terminal=False)
+    buffer.append_obs(obs=3, reward=2, terminated=False)
 
     assert len(buffer.transitions) == 1
 
@@ -104,7 +104,7 @@ def test_2_transition_overflow():
     assert transition.obs == 2
     assert transition.action == 2
     assert transition.reward == 2
-    assert transition.terminal is False
+    assert transition.terminated is False
     assert transition.next_obs == 3
 
 
@@ -116,11 +116,11 @@ def test_transition_with_termination():
 
     buffer.append_obs(obs=1)
     buffer.append_action(1)
-    buffer.append_obs(obs=2, reward=1, terminal=True)
+    buffer.append_obs(obs=2, reward=1, terminated=True)
 
     buffer.append_obs(obs=3)
     buffer.append_action(2)
-    buffer.append_obs(obs=4, reward=2, terminal=False)
+    buffer.append_obs(obs=4, reward=2, terminated=False)
 
     assert len(buffer.transitions) == 2
 
@@ -128,15 +128,16 @@ def test_transition_with_termination():
     assert transition.obs == 1
     assert transition.action == 1
     assert transition.reward == 1
-    assert transition.terminal is True
+    assert transition.terminated is True
     assert transition.next_obs == 2
 
     transition = buffer.transitions[1]
     assert transition.obs == 3
     assert transition.action == 2
     assert transition.reward == 2
-    assert transition.terminal is False
+    assert transition.terminated is False
     assert transition.next_obs == 4
+
 
 ##################################################
 # Trajectory sampling
@@ -185,19 +186,19 @@ def test_trajectory_indexing():
     buffer.append_obs(0)
     for i in range(9):
         buffer.append_action(i)
-        buffer.append_obs(obs=i+1, reward=i+0.1, terminal=False)
+        buffer.append_obs(obs=i+1, reward=i+0.1, terminated=False)
 
     traj = buffer.trajectories[0]
-    assert traj.obs == [0,1,2]
-    assert traj.next_obs == [1,2,3]
-    assert traj.action == [0,1,2]
-    assert traj.reward == [0.1,1.1,2.1]
+    assert traj.obs.tolist() == [0,1,2]
+    assert traj.next_obs.tolist() == [1,2,3]
+    assert traj.action.tolist() == [0,1,2]
+    assert torch.allclose(traj.reward, torch.tensor([0.1, 1.1, 2.1]))
 
     traj = buffer.trajectories[1]
-    assert traj.obs == [1,2,3]
-    assert traj.next_obs == [2,3,4]
-    assert traj.action == [1,2,3]
-    assert traj.reward == [1.1,2.1,3.1]
+    assert traj.obs.tolist() == [1,2,3]
+    assert traj.next_obs.tolist() == [2,3,4]
+    assert traj.action.tolist() == [1,2,3]
+    assert torch.allclose(traj.reward, torch.tensor([1.1, 2.1, 3.1]))
 
 
 def test_trajectory_out_of_bounds():
@@ -209,7 +210,7 @@ def test_trajectory_out_of_bounds():
     buffer.append_obs(0)
     for i in range(3):
         buffer.append_action(i)
-        buffer.append_obs(obs=i+1, reward=i+0.1, terminal=False)
+        buffer.append_obs(obs=i+1, reward=i+0.1, terminated=False)
 
     buffer.trajectories[0]
     with pytest.raises(IndexError):
