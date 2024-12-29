@@ -17,7 +17,7 @@ from frankenstein.algorithms.utils import recursive_zip
 from frankenstein.buffer.vec_history import VecHistoryBuffer
 from frankenstein.advantage.gae import generalized_advantage_estimate
 from frankenstein.loss.policy_gradient import clipped_advantage_policy_gradient_loss
-from frankenstein.algorithms.trainer import Trainer
+from frankenstein.algorithms.trainer import Trainer, Checkpoint, NullCheckpoint
 from frankenstein.algorithms.utils import to_tensor, reset_hidden, get_action_dist_function, FeedforwardModel, RecurrentModel, format_rate
 
 
@@ -28,8 +28,6 @@ from frankenstein.algorithms.utils import to_tensor, reset_hidden, get_action_di
 class PPOConfig(TypedDict, total=False):
     rollout_length: int
     warmup_steps: int
-    reward_scale: float
-    reward_clip: Optional[float]
     discount: float
     gae_lambda: float
     norm_adv: bool
@@ -46,8 +44,6 @@ class PPOConfig(TypedDict, total=False):
 DEFAULT_PPO_CONFIG = PPOConfig(
     rollout_length = 128,
     warmup_steps = 0,
-    reward_scale = 1.0,
-    reward_clip = None,
     discount = 0.99,
     gae_lambda = 0.95,
     norm_adv = True,
@@ -121,9 +117,10 @@ class VerboseLoggingCallbacks(PPOCallbacks):
                 term_width, _ = os. get_terminal_size()
             except:
                 term_width = 80
-            completed_transitions = l['transition_count']
+            completed_transitions_total = l['transition_count'] # Total number of transitions
+            completed_transitions = l['transition_count'] - l['checkpoint'].start_step # Number of transitions since the last checkpoint
             print(f'Time: {datetime.datetime.now()}')
-            print(f'Completed transitions: {completed_transitions:,} ({format_rate(completed_transitions, "step", "steps", time.time() - self._start_time)})')
+            print(f'Completed transitions: {completed_transitions_total:,} ({format_rate(completed_transitions, "step", "steps", time.time() - self._start_time)})')
             print(f'Completed episode(s): {self._num_completed_episodes} ({format_rate(self._num_completed_episodes, "episode", "episodes", time_diff)})')
 
             if len(self._episode_true_reward) == 0:
@@ -189,6 +186,7 @@ class WandbLoggingCallbacks(PPOCallbacks):
     def on_start(self, l):
         if self._run is None:
             return
+        self._transition_count = l['checkpoint'].start_step
         # TODO: Update config
 
     def on_transition(self, l):
@@ -497,8 +495,11 @@ def compute_feedforward_model_output(
 
 
 class FeedforwardPPOTrainer(PPOTrainer[FeedforwardModel]):
-    def train(self, max_transitions: int | None = None, callbacks: PPOCallbacks = DEFAULT_PPO_CALLBACKS):
+    def train(self, max_transitions: int | None = None, callbacks: PPOCallbacks = DEFAULT_PPO_CALLBACKS, checkpoint: Checkpoint | None = None):
         callbacks.on_start(locals())
+
+        if checkpoint is None:
+            checkpoint = NullCheckpoint()
 
         num_envs = self.env.num_envs
 
@@ -551,8 +552,12 @@ class FeedforwardPPOTrainer(PPOTrainer[FeedforwardModel]):
         # Start training
         callbacks.on_training_start(locals())
 
-        for step in itertools.count():
+        start_step = checkpoint.start_step // (num_envs * self.config('rollout_length'))
+        transition_count = checkpoint.start_step
+        for step in itertools.count(start_step):
             transition_count = step * num_envs * self.config('rollout_length')
+            checkpoint.save(transition_count)
+
             if max_transitions is not None and transition_count >= max_transitions:
                 break
 
@@ -649,6 +654,9 @@ class FeedforwardPPOTrainer(PPOTrainer[FeedforwardModel]):
             history.clear()
             episode_rewards = []
 
+        if transition_count != checkpoint.start_step:
+            checkpoint.save(transition_count, force=True)
+
         callbacks.on_end(locals())
 
     def compute_loss_intermediates(
@@ -732,8 +740,11 @@ def compute_recurrent_model_output(
 
 
 class RecurrentPPOTrainer(PPOTrainer[RecurrentModel]):
-    def train(self, max_transitions: int | None = None, callbacks: PPOCallbacks = DEFAULT_PPO_CALLBACKS):
+    def train(self, max_transitions: int | None = None, callbacks: PPOCallbacks = DEFAULT_PPO_CALLBACKS, checkpoint: Checkpoint | None = None):
         callbacks.on_start(locals())
+
+        if checkpoint is None:
+            checkpoint = NullCheckpoint()
 
         num_envs = self.env.num_envs
 
@@ -799,8 +810,12 @@ class RecurrentPPOTrainer(PPOTrainer[RecurrentModel]):
         # Start training
         callbacks.on_training_start(locals())
 
-        for step in itertools.count():
+        start_step = checkpoint.start_step // (num_envs * self.config('rollout_length'))
+        transition_count = checkpoint.start_step
+        for step in itertools.count(start_step):
             transition_count = step * num_envs * self.config('rollout_length')
+            checkpoint.save(transition_count)
+
             if max_transitions is not None and transition_count >= max_transitions:
                 break
 
@@ -907,6 +922,9 @@ class RecurrentPPOTrainer(PPOTrainer[RecurrentModel]):
             # Clear data
             history.clear()
             episode_rewards = []
+
+        if transition_count != checkpoint.start_step:
+            checkpoint.save(transition_count, force=True)
 
         callbacks.on_end(locals())
 

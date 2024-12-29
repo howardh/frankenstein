@@ -17,6 +17,7 @@ from frankenstein.buffer import HistoryBuffer
 from frankenstein.algorithms.trainer import Trainer
 from frankenstein.algorithms.utils import to_tensor, get_action_dist_function, FeedforwardModel, RecurrentModel, format_rate
 from frankenstein.buffer.vec_history import VecHistoryBuffer
+from frankenstein.algorithms.trainer import Trainer, Checkpoint, NullCheckpoint
 
 
 ##################################################
@@ -381,15 +382,18 @@ class SACTrainer(Trainer, Generic[ModelType]):
 
 
 class FeedforwardSACTrainer(SACTrainer[FeedforwardModel]):
-    def train(self, max_transitions: int | None = None, callbacks: SACCallbacks = DEFAULT_SAC_CALLBACKS):
+    def train(self, max_transitions: int | None = None, callbacks: SACCallbacks = DEFAULT_SAC_CALLBACKS, checkpoint: Checkpoint | None = None):
+        if checkpoint is None:
+            checkpoint = NullCheckpoint()
+
         if isinstance(self.env, gymnasium.Env):
-            self.train_non_vec(max_transitions=max_transitions, callbacks=callbacks)
+            self.train_non_vec(max_transitions=max_transitions, callbacks=callbacks, checkpoint=checkpoint)
         elif isinstance(self.env, gymnasium.vector.VectorEnv):
-            self.train_vec(max_transitions=max_transitions, callbacks=callbacks)
+            self.train_vec(max_transitions=max_transitions, callbacks=callbacks, checkpoint=checkpoint)
         else:
             raise ValueError(f'env must be a gymnasium.Env or gymnasium.vector.VectorEnv. Found {type(self.env)}')
 
-    def train_vec(self, max_transitions: int | None = None, callbacks: SACCallbacks = DEFAULT_SAC_CALLBACKS):
+    def train_vec(self, max_transitions: int | None, callbacks: SACCallbacks, checkpoint: Checkpoint):
         callbacks.on_start(locals())
 
         """
@@ -408,8 +412,13 @@ class FeedforwardSACTrainer(SACTrainer[FeedforwardModel]):
 
         obs, _ = self.env.reset()
         history.append_obs(obs)
-        for step in itertools.count():
-            if step * num_envs >= max_transitions:
+        start_step = checkpoint.start_step // num_envs
+        transition_count = checkpoint.start_step
+        for step in itertools.count(start_step):
+            transition_count = step * num_envs
+            checkpoint.save(transition_count)
+
+            if transition_count >= max_transitions:
                 break
 
             callbacks.on_step_start(locals())
@@ -441,9 +450,12 @@ class FeedforwardSACTrainer(SACTrainer[FeedforwardModel]):
 
             self._gradient_step(step, history, callbacks)
 
+        if transition_count != checkpoint.start_step:
+            checkpoint.save(transition_count, force=True)
+
         callbacks.on_end(locals())
 
-    def train_non_vec(self, max_transitions: int | None = None, callbacks: SACCallbacks = DEFAULT_SAC_CALLBACKS):
+    def train_non_vec(self, max_transitions: int | None, callbacks: SACCallbacks, checkpoint: Checkpoint):
         raise NotImplementedError()
 
         callbacks.on_start(locals())

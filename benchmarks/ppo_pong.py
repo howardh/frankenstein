@@ -1,39 +1,51 @@
+import argparse
+
 import gymnasium
 import torch
 import ale_py
 
 from frankenstein.algorithms.ppo.trainer import FeedforwardPPOTrainer, FeedforwardModel
+from frankenstein.algorithms.trainer import Checkpoint
 
 
-if __name__ == '__main__':
-    class Model(FeedforwardModel):
-        def __init__(self, obs_shape, act_dim):
-            assert obs_shape == (4, 84, 84)
-            super().__init__()
-            self.conv = torch.nn.Sequential(
-                # (4, 84, 84)
-                torch.nn.Conv2d(4, 32, 8, stride=4),
-                torch.nn.ReLU(),
-                # (32, 20, 20)
-                torch.nn.Conv2d(32, 64, 4, stride=2),
-                torch.nn.ReLU(),
-                # (64, 9, 9)
-                torch.nn.Conv2d(64, 64, 3, stride=1),
-                torch.nn.ReLU(),
-                # (64, 7, 7)
-                torch.nn.Flatten(),
-                torch.nn.Linear(64*7*7, 512),
-            )
-            self.fc_policy = torch.nn.Linear(512, act_dim)
-            self.fc_value = torch.nn.Linear(512, 1)
-        def forward(self, x):
-            x = x / 255.0
-            x = self.conv(x)
-            return {
-                'action': self.fc_policy(x),
-                'value': self.fc_value(x),
-            }
+class Model(FeedforwardModel):
+    def __init__(self, obs_shape, act_dim):
+        assert obs_shape == (4, 84, 84)
+        super().__init__()
+        self.conv = torch.nn.Sequential(
+            # (4, 84, 84)
+            torch.nn.Conv2d(4, 32, 8, stride=4),
+            torch.nn.ReLU(),
+            # (32, 20, 20)
+            torch.nn.Conv2d(32, 64, 4, stride=2),
+            torch.nn.ReLU(),
+            # (64, 9, 9)
+            torch.nn.Conv2d(64, 64, 3, stride=1),
+            torch.nn.ReLU(),
+            # (64, 7, 7)
+            torch.nn.Flatten(),
+            torch.nn.Linear(64*7*7, 512),
+        )
+        self.fc_policy = torch.nn.Linear(512, act_dim)
+        self.fc_value = torch.nn.Linear(512, 1)
+    def forward(self, x):
+        x = x / 255.0
+        x = self.conv(x)
+        return {
+            'action': self.fc_policy(x),
+            'value': self.fc_value(x),
+        }
 
+
+def init_arg_parser():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--checkpoint', type=str, default=None)
+
+    return parser
+
+
+def main(args):
     if torch.cuda.is_available():
         device = torch.device('cuda')
     else:
@@ -75,4 +87,17 @@ if __name__ == '__main__':
                 'max_grad_norm': 0.5,
             }
     )
-    trainer.train()
+    if args.checkpoint is not None:
+        checkpoint = Checkpoint({
+            'model': model,
+            'optimizer': optimizer,
+        }, frequency=(30, 'minutes'), path=args.checkpoint)
+    else:
+        checkpoint = None
+    trainer.train(checkpoint=checkpoint)
+
+
+if __name__ == '__main__':
+    parser = init_arg_parser()
+    args = parser.parse_args()
+    main(args)
