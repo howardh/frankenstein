@@ -1,15 +1,15 @@
 import torch
-from torchtyping import TensorType
+from jaxtyping import Float, Bool
 
 
 def generalized_advantage_estimate(
-        state_values: TensorType['num_steps', 'batch_size', float],
-        next_state_values: TensorType['num_steps', 'batch_size', float],
-        rewards: TensorType['num_steps', 'batch_size', float],
-        terminals: TensorType['num_steps', 'batch_size', bool],
+        state_values: Float[torch.Tensor, 'num_steps batch_size'],
+        next_state_values: Float[torch.Tensor, 'num_steps batch_size'],
+        rewards: Float[torch.Tensor, 'num_steps batch_size'],
+        terminals: Bool[torch.Tensor, 'num_steps batch_size'],
         discount: float,
         gae_lambda: float,
-) -> TensorType['batch_size', 'num_steps', float]:
+) -> Float[torch.Tensor, 'batch_size num_steps']:
     """
     Return the n-step value of each state.
 

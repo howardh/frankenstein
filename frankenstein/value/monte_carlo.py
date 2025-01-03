@@ -1,13 +1,13 @@
 import torch
-from torchtyping import TensorType
+from jaxtyping import Float, Bool
 
 
 def monte_carlo_return_iterative(
-    next_state_values: TensorType['num_steps', float],
-    rewards: TensorType['num_steps', float],
-    terminals: TensorType['num_steps', bool],
-    discounts: TensorType['num_steps', float]
-) -> TensorType['num_steps', float]:
+    next_state_values: Float[torch.Tensor, 'num_steps'],
+    rewards: Float[torch.Tensor, 'num_steps'],
+    terminals: Bool[torch.Tensor, 'num_steps'],
+    discounts: Float[torch.Tensor, 'num_steps']
+) -> Float[torch.Tensor, 'num_steps']:
     """
     Return the "Monte-Carlo" return of each state. The output is computed in an interative manner, so this is less computationally efficient, but the code may be easier to understand.
 
@@ -34,11 +34,11 @@ def monte_carlo_return_iterative(
 
 
 def monte_carlo_return_iterative_batch(
-    next_state_values: TensorType['num_steps', 'batch_size', float],
-    rewards: TensorType['num_steps', 'batch_size', float],
-    terminals: TensorType['num_steps', 'batch_size', bool],
-    discounts: TensorType['num_steps', 'batch_size', float],
-) -> TensorType['num_steps', 'batch_size', float]:
+    next_state_values: Float[torch.Tensor, 'num_steps batch_size'],
+    rewards: Float[torch.Tensor, 'num_steps batch_size'],
+    terminals: Bool[torch.Tensor, 'num_steps batch_size'],
+    discounts: Float[torch.Tensor, 'num_steps batch_size'],
+) -> Float[torch.Tensor, 'num_steps batch_size']:
     """
     Return the "Monte-Carlo" return of each state. The output is computed in an interative manner, so this is less computationally efficient, but the code may be easier to understand.
 

@@ -1,9 +1,9 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Generic, TypeVar, Mapping, List, NamedTuple, Any
+from typing import Any
 
+from jaxtyping import Float, Bool
 import torch
-from torchtyping import TensorType
 from torch.utils.data.dataloader import default_collate
 from tensordict import TensorDict
 
@@ -36,11 +36,11 @@ class TransitionBatch():
     """ Action taken at the start state (`obs`) """
     next_obs: torch.Tensor | TensorDict
     """ State observed after taking the action (`action`) at the start state (`obs`) """
-    reward: TensorType[float]
+    reward: Float[torch.Tensor, '...']
     """ Reward received after taking the action (`action`) at the start state (`obs`) """
-    terminated: TensorType[bool]
+    terminated: Bool[torch.Tensor, '...']
     """ Whether the next state (`next_obs`) is terminal"""
-    truncated: TensorType[bool]
+    truncated: Bool[torch.Tensor, '...']
     """ Whether the next state (`next_obs`) is terminal"""
     misc: Sequence[Any]
     """ Miscellaneous data associated with `obs` """
@@ -53,9 +53,9 @@ class Trajectory():
     obs: torch.Tensor | TensorDict
     action: torch.Tensor | TensorDict
     next_obs: torch.Tensor | TensorDict
-    reward: TensorType[float]
-    terminated: TensorType[bool]
-    truncated: TensorType[bool]
+    reward: Float[torch.Tensor, '...']
+    terminated: Bool[torch.Tensor, '...']
+    truncated: Bool[torch.Tensor, '...']
     misc: list[Any]
     next_misc: list[Any]
 

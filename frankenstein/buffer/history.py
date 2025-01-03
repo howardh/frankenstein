@@ -1,6 +1,5 @@
 import torch
 from torch.utils.data.dataloader import default_collate
-from torchtyping import TensorType
 from tensordict import TensorDict
 
 from .views import TrajectoryView, TransitionView, Trajectory, Transition
@@ -31,8 +30,8 @@ class HistoryBuffer():
             raise ValueError('`max_len` must be at least 1')
 
         # History is saved as a list instead of tensors to save on memory. This allows for data to be stored in formats like LazyFrames.
-        self.obs_history: list[TensorType | TensorDict] = []
-        self.action_history: list[TensorType | TensorDict] = []
+        self.obs_history: list[torch.Tensor| TensorDict] = []
+        self.action_history: list[torch.Tensor | TensorDict] = []
         self.reward_history: list[float] = []
         self.terminated_history: list[bool] = []
         self.truncated_history: list[bool] = []
@@ -46,7 +45,7 @@ class HistoryBuffer():
         self._trajectory_view = TrajectoryView(self)
 
     def append_obs(self,
-                   obs: TensorType | TensorDict,
+                   obs: torch.Tensor | TensorDict,
                    reward: float | None = None,
                    terminated: bool = False,
                    truncated: bool = False,

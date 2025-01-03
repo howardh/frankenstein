@@ -1,13 +1,13 @@
 import torch
-from torchtyping import TensorType
+from jaxtyping import Float, Bool
 
 def v_trace_return(
-    log_action_probs: TensorType['num_steps', 'batch_shape', float],
-    old_log_action_probs: TensorType['num_steps', 'batch_shape', float],
-    state_values: TensorType['num_steps', 'batch_shape', float],
-    next_state_values: TensorType['num_steps', 'batch_shape', float],
-    rewards: TensorType['num_steps', 'batch_shape', float],
-    terminals: TensorType['num_steps', 'batch_shape', float],
+    log_action_probs: Float[torch.Tensor, 'num_steps batch_shape'],
+    old_log_action_probs: Float[torch.Tensor, 'num_steps batch_shape'],
+    state_values: Float[torch.Tensor, 'num_steps batch_shape'],
+    next_state_values: Float[torch.Tensor, 'num_steps batch_shape'],
+    rewards: Float[torch.Tensor, 'num_steps batch_shape'],
+    terminals: Float[torch.Tensor, 'num_steps batch_shape'],
     discount: float,
     max_c: float,
     max_rho: float,

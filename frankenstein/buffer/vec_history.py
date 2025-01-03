@@ -1,12 +1,24 @@
-from typing import Optional, Generic, TypeVar, Mapping
+from typing import Mapping, overload
 
+from jaxtyping import Float, Bool, Real
 import numpy as np
 import torch
-from torchtyping import TensorType
 from torch.utils.data.dataloader import default_collate
 
 from .views import TrajectoryView, TransitionView, Trajectory, Transition
 
+
+@overload
+def to_device(data: torch.Tensor, device: torch.device) -> torch.Tensor: ...
+
+@overload
+def to_device(data: tuple, device: torch.device) -> tuple: ...
+
+@overload
+def to_device(data: list, device: torch.device) -> tuple: ...
+
+@overload
+def to_device(data: Mapping, device: torch.device) -> dict: ...
 
 def to_device(data, device):
     if isinstance(data, torch.Tensor):
@@ -247,27 +259,27 @@ class VecHistoryBuffer():
 
 
     @property
-    def obs(self) -> TensorType['seq_len', 'num_envs', 'obs_shape']:
+    def obs(self) -> Real[torch.Tensor, 'seq_len num_envs obs_shape']:
         output = default_collate(self.obs_history)
         output = to_device(output, self.device)
         return output
 
     @property
-    def reward(self) -> TensorType['seq_len', 'num_envs', float]:
+    def reward(self) -> Float[torch.Tensor, 'seq_len num_envs']:
         output = torch.stack([
             torch.tensor(x, device=self.device) for x in self.reward_history
         ], dim=0)
         return output
 
     @property
-    def terminated(self) -> TensorType['seq_len', 'num_envs', bool]:
+    def terminated(self) -> Bool[torch.Tensor, 'seq_len num_envs']:
         output = torch.stack([
             torch.tensor(x, device=self.device) for x in self.terminated_history
         ], dim=0)
         return output
 
     @property
-    def action(self) -> TensorType['seq_len', 'num_envs', 'action_shape']:
+    def action(self) -> Real[torch.Tensor, 'seq_len num_envs action_shape']:
         if len(self.action_history) == 0:
             return torch.zeros(0, self._num_envs, 0, device=self.device)
         output = default_collate(self.action_history)

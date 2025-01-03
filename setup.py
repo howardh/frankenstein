@@ -5,7 +5,7 @@ setup(name='frankenstein',
     install_requires=[
         'torch',
         'tensordict',
-        'torchtyping',
+        'jaxtyping',
         'tabulate',
         'gymnasium>=1.0.0',
         'typing-extensions',

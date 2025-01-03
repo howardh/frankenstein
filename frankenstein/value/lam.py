@@ -1,16 +1,16 @@
 import torch
-from torchtyping import TensorType
+from jaxtyping import Float, Bool
 
 from frankenstein.value.n_step import n_step_return_iterative
 
 
 def lambda_return_iterative(
-    next_state_values: TensorType['num_steps', float],
-    rewards: TensorType['num_steps', float],
-    terminals: TensorType['num_steps', bool],
+    next_state_values: Float[torch.Tensor, 'num_steps'],
+    rewards: Float[torch.Tensor, 'num_steps'],
+    terminals: Bool[torch.Tensor, 'num_steps'],
     discount: float,
     lam: float,
-) -> TensorType['num_steps', float]:
+) -> Float[torch.Tensor, 'num_steps']:
     """
     Return the truncated $\\lambda$ return of each state.
     The output is computed in an interative manner, so this is less computationally efficient, but the code may be easier to understand.
