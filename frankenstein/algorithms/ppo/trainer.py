@@ -119,9 +119,15 @@ class VerboseLoggingCallbacks(PPOCallbacks):
                 term_width = 80
             completed_transitions_total = l['transition_count'] # Total number of transitions
             completed_transitions = l['transition_count'] - l['checkpoint'].start_step # Number of transitions since the last checkpoint
+            max_transitions = l['max_transitions'] # Total number of transitions
             print(f'Time: {datetime.datetime.now()}')
             print(f'Completed transitions: {completed_transitions_total:,} ({format_rate(completed_transitions, "step", "steps", time.time() - self._start_time)})')
             print(f'Completed episode(s): {self._num_completed_episodes} ({format_rate(self._num_completed_episodes, "episode", "episodes", time_diff)})')
+            if max_transitions is not None:
+                remaining_transitions = max_transitions - completed_transitions_total
+                transitions_per_second = completed_transitions / (time.time() - self._start_time)
+                remaining_seconds = remaining_transitions / transitions_per_second
+                print(f'Estimated remaining time: {remaining_seconds:,} seconds')
 
             if len(self._episode_true_reward) == 0:
                 data = OrderedDict([
@@ -496,10 +502,10 @@ def compute_feedforward_model_output(
 
 class FeedforwardPPOTrainer(PPOTrainer[FeedforwardModel]):
     def train(self, max_transitions: int | None = None, callbacks: PPOCallbacks = DEFAULT_PPO_CALLBACKS, checkpoint: Checkpoint | None = None):
-        callbacks.on_start(locals())
-
         if checkpoint is None:
             checkpoint = NullCheckpoint()
+
+        callbacks.on_start(locals())
 
         num_envs = self.env.num_envs
 
@@ -741,10 +747,10 @@ def compute_recurrent_model_output(
 
 class RecurrentPPOTrainer(PPOTrainer[RecurrentModel]):
     def train(self, max_transitions: int | None = None, callbacks: PPOCallbacks = DEFAULT_PPO_CALLBACKS, checkpoint: Checkpoint | None = None):
-        callbacks.on_start(locals())
-
         if checkpoint is None:
             checkpoint = NullCheckpoint()
+
+        callbacks.on_start(locals())
 
         num_envs = self.env.num_envs
 
@@ -784,7 +790,7 @@ class RecurrentPPOTrainer(PPOTrainer[RecurrentModel]):
                 action = action_dist.sample().cpu().numpy()
 
             # Step environment
-            obs, reward, terminated, truncated, info = env.step(action) # type: ignore
+            obs, reward, terminated, truncated, info = self.env.step(action) # type: ignore
             done = terminated | truncated
 
             episode_reward += reward
@@ -913,6 +919,8 @@ class RecurrentPPOTrainer(PPOTrainer[RecurrentModel]):
 
                 self.optimizer.zero_grad()
                 loss.backward()
+                if self.config('max_grad_norm') is not None:
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config('max_grad_norm'))
                 self.optimizer.step()
 
                 callbacks.on_epoch_end(locals())
