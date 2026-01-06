@@ -654,6 +654,9 @@ class FeedforwardPPOTrainer(PPOTrainer[FeedforwardModel]):
 
                 callbacks.on_epoch_end(locals())
 
+            if self.scheduler is not None:
+                self.scheduler.step()
+
             callbacks.on_gradients_end(locals())
 
             # Clear data
@@ -806,7 +809,7 @@ class RecurrentPPOTrainer(PPOTrainer[RecurrentModel]):
                 )
                 # Reset episode stats
                 episode_reward[done] = 0
-                episode_steps[done] = 0
+                episode_steps[done] = -1
 
         if self.config('warmup_steps') > 0:
             print(f'Warmup time: {time.time() - start_time:.2f} s')
@@ -816,10 +819,13 @@ class RecurrentPPOTrainer(PPOTrainer[RecurrentModel]):
         # Start training
         callbacks.on_training_start(locals())
 
-        start_step = checkpoint.start_step // (num_envs * self.config('rollout_length'))
+        num_epochs = self.config('num_epochs')
+        rollout_length = self.config('rollout_length')
+
+        start_step = checkpoint.start_step // (num_envs * rollout_length)
         transition_count = checkpoint.start_step
         for step in itertools.count(start_step):
-            transition_count = step * num_envs * self.config('rollout_length')
+            transition_count = step * num_envs * rollout_length
             checkpoint.save(transition_count)
 
             if max_transitions is not None and transition_count >= max_transitions:
@@ -830,7 +836,7 @@ class RecurrentPPOTrainer(PPOTrainer[RecurrentModel]):
             # Gather data
             callbacks.on_gather_start(locals())
             episode_rewards = [] # For multitask weighing purposes
-            for _ in range(self.config('rollout_length')):
+            for _ in range(rollout_length):
                 # Select action
                 with torch.no_grad():
                     model_output = self.model(to_tensor(obs, self.device), hidden)
@@ -877,10 +883,10 @@ class RecurrentPPOTrainer(PPOTrainer[RecurrentModel]):
                     history = history,
             )
             state_dict = None
-            num_transitions = num_envs * self.config('rollout_length')
-            num_transitions_clipped = num_transitions // self.config('num_epochs') * self.config('num_epochs')
-            minibatch_indices = torch.randperm(num_transitions)[:num_transitions_clipped].reshape(self.config('num_epochs'), -1)
-            for epoch in range(self.config('num_epochs')):
+            num_transitions = num_envs * rollout_length
+            num_transitions_clipped = num_transitions // num_epochs * num_epochs
+            minibatch_indices = torch.randperm(num_transitions)[:num_transitions_clipped].reshape(num_epochs, -1)
+            for epoch in range(num_epochs):
                 losses = self.compute_ppo_losses(
                         history = history,
                         intermediate_values = interm,
@@ -908,9 +914,6 @@ class RecurrentPPOTrainer(PPOTrainer[RecurrentModel]):
                 loss_pi = losses['loss_pi'].flatten()[idx].mean()
                 loss_vf = losses['loss_vf'].flatten()[idx].mean()
                 loss_entropy = losses['loss_entropy'].flatten()[idx].mean()
-                #loss_pi = losses['loss_pi'].mean()
-                #loss_vf = losses['loss_vf'].mean()
-                #loss_entropy = losses['loss_entropy'].mean()
 
                 loss = loss_pi + vf_loss_coeff * loss_vf + entropy_loss_coeff * loss_entropy
 
@@ -924,6 +927,9 @@ class RecurrentPPOTrainer(PPOTrainer[RecurrentModel]):
                 self.optimizer.step()
 
                 callbacks.on_epoch_end(locals())
+
+            if self.scheduler is not None:
+                self.scheduler.step()
 
             callbacks.on_gradients_end(locals())
 
