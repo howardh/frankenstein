@@ -17,7 +17,8 @@ class Model(RecurrentModel):
         self.lstm = torch.nn.LSTMCell(input_size, HIDDEN_SIZE)
         self.fc_policy = torch.nn.Linear(HIDDEN_SIZE, num_arms)
         self.fc_value = torch.nn.Linear(HIDDEN_SIZE, 1)
-    def forward(self, x, hidden):
+    def forward(self, *inputs):
+        x, hidden = inputs
         action = torch.nn.functional.one_hot(
             x['action'].long(),
             num_classes=self._num_arms

@@ -157,6 +157,7 @@ class VerboseLoggingCallbacks(PPOCallbacks):
 
             self._last_report_time = time.time()
             self._episode_reward.clear()
+            self._episode_true_reward.clear()
             self._episode_steps.clear()
             self._num_completed_episodes = 0
 
@@ -548,7 +549,7 @@ class FeedforwardPPOTrainer(PPOTrainer[FeedforwardModel]):
             if done.any():
                 # Reset episode stats
                 episode_reward[done] = 0
-                episode_steps[done] = 0
+                episode_steps[done] = -1 # -1 accounts for the "step" between termination and resetting
 
         if self.config('warmup_steps') > 0:
             print(f'Warmup time: {time.time() - start_time:.2f} s')
@@ -601,7 +602,7 @@ class FeedforwardPPOTrainer(PPOTrainer[FeedforwardModel]):
                         episode_rewards.append(r)
                     # Reset episode stats
                     episode_reward[done] = 0
-                    episode_steps[done] = 0
+                    episode_steps[done] = -1 # -1 accounts for the "step" between termination and resetting
             callbacks.on_gather_end(locals())
 
             # Train
@@ -809,7 +810,7 @@ class RecurrentPPOTrainer(PPOTrainer[RecurrentModel]):
                 )
                 # Reset episode stats
                 episode_reward[done] = 0
-                episode_steps[done] = -1
+                episode_steps[done] = -1 # -1 accounts for the "step" between termination and resetting
 
         if self.config('warmup_steps') > 0:
             print(f'Warmup time: {time.time() - start_time:.2f} s')
@@ -875,7 +876,7 @@ class RecurrentPPOTrainer(PPOTrainer[RecurrentModel]):
                         episode_rewards.append(r)
                     # Reset episode stats
                     episode_reward[done] = 0
-                    episode_steps[done] = 0
+                    episode_steps[done] = -1 # -1 accounts for the "step" between termination and resetting
             callbacks.on_gather_end(locals())
 
             # Train

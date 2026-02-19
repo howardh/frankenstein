@@ -12,7 +12,8 @@ if __name__ == '__main__':
             self.fc = torch.nn.Linear(obs_dim, hidden_dims)
             self.fc_action = torch.nn.Linear(hidden_dims, act_dim)
             self.fc_value= torch.nn.Linear(hidden_dims, 1)
-        def forward(self, x):
+        def forward(self, *inputs):
+            x, = inputs
             x = torch.relu(self.fc(x))
             return {
                 'action': self.fc_action(x),

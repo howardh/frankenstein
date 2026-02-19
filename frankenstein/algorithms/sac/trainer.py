@@ -1,4 +1,4 @@
-from collections import OrderedDict, defaultdict
+from collections import OrderedDict, defaultdict, namedtuple
 import copy
 import datetime
 import itertools
@@ -12,12 +12,15 @@ import tabulate
 import torch
 import torch.nn
 import torch.nn.utils
+from tensordict import TensorDict
+from torch.utils.data.dataloader import default_collate
 
 from frankenstein.buffer import HistoryBuffer
 from frankenstein.algorithms.trainer import Trainer
-from frankenstein.algorithms.utils import to_tensor, get_action_dist_function, FeedforwardModel, RecurrentModel, format_rate
-from frankenstein.buffer.vec_history import VecHistoryBuffer
+from frankenstein.algorithms.utils import to_tensor, get_action_dist_function, FeedforwardModel, RecurrentModel, format_rate, recursive_zip, reset_hidden
+from frankenstein.buffer.vec_history import VecHistoryBuffer, NumpyBackedVecHistoryBuffer, SerializeFn, default_serialize_np_fn
 from frankenstein.algorithms.trainer import Trainer, Checkpoint, NullCheckpoint
+from frankenstein.buffer.views import TrajectoryBatch
 
 
 ##################################################
@@ -29,11 +32,11 @@ class SACConfig(TypedDict, total=False):
     warmup_steps: int # Number of transitions to collect before training starts
     batch_size: int
     discount: float
-    policy_update_frequency: int # Number of gradient steps between policy network updates
-    target_update_frequency: int # Number of gradient steps between target network updates
+    policy_update_interval: int # Number of gradient steps between policy network updates
+    target_update_interval: int # Number of gradient steps between target network updates
     target_update_rate: float # Polyak averaging rate for target network updates. 1 means hard update. 0 means no update.
-    update_frequency: int # Number of transitions between gradient steps
     entropy_coeff: float
+    trajectory_length: int
 
 
 DEFAULT_SAC_CONFIG = SACConfig(
@@ -41,11 +44,11 @@ DEFAULT_SAC_CONFIG = SACConfig(
     warmup_steps = 5_000,
     batch_size = 256,
     discount = 0.99,
-    policy_update_frequency=2,
-    target_update_frequency=1,
+    policy_update_interval=2,
+    target_update_interval=1,
     target_update_rate=0.005,
-    update_frequency=1,
     entropy_coeff = 0.05,
+    trajectory_length = 128,
 )
 
 
@@ -332,6 +335,61 @@ def get_bound_action_fn(action_space, device) -> Callable:
         raise NotImplementedError()
 
 
+def compute_recurrent_model_output(actor_model: RecurrentModel, critic_models: list[RecurrentModel], batch: TrajectoryBatch):
+    """
+    Args:
+        critic_models: A list of critic models in the order `critic_model_1`, `critic_model_2`, `critic_model_target_1`, `critic_model_target_2`.
+    """
+    obs = batch.obs
+    action = batch.action
+    terminated = batch.terminated
+
+    actor_hidden = batch.misc[0]['actor_hidden']
+    critic_hiddens = batch.misc[0]['critic_hidden']
+
+    device = next(actor_model.parameters()).device
+    num_training_envs = len(terminated[0])
+    n = len(batch.obs)
+
+    actor_model_output = []
+    actor_curr_hidden = tuple([h[0].detach() for h in actor_hidden])
+    actor_initial_hidden = actor_model.init_hidden(num_training_envs)
+    critic_model_outputs = [[] for _ in critic_models]
+    critic_curr_hiddens = [tuple([h[0].detach() for h in critic_hidden]) for critic_hidden in critic_hiddens]
+    critic_initial_hiddens = [critic_model.init_hidden(num_training_envs) for critic_model in critic_models]
+    for o,term in recursive_zip(obs,terminated):
+        o = to_tensor(o, device)
+        # Actor
+        actor_curr_hidden = reset_hidden(
+                terminal = term,
+                hidden = actor_curr_hidden,
+                initial_hidden = actor_initial_hidden,
+                batch_dim = actor_model.hidden_batch_dims,
+        )
+        mo = actor_model(o,actor_curr_hidden)
+        actor_curr_hidden = mo['hidden']
+        actor_model_output.append(mo)
+        # Critics
+        new_critic_curr_hiddens = []
+        for critic_model, critic_curr_hidden, critic_initial_hidden, critic_model_output in zip(critic_models, critic_curr_hiddens, critic_initial_hiddens, critic_model_outputs):
+            new_critic_curr_hiddens.append(reset_hidden(
+                terminal = term,
+                hidden = critic_curr_hidden,
+                initial_hidden = critic_initial_hidden,
+                batch_dim = critic_model.hidden_batch_dims,
+            ))
+            mo = critic_model(o,critic_curr_hidden)
+            new_critic_curr_hiddens.append(mo['hidden'])
+            critic_model_output.append(mo)
+        critic_curr_hiddens = new_critic_curr_hiddens
+    #model_output = default_collate(model_output)
+
+    return {
+        'values': [...],
+        'hidden': ...,
+    }
+
+
 ModelType = TypeVar('ModelType', FeedforwardModel, RecurrentModel)
 class SACTrainer(Trainer, Generic[ModelType]):
     def __init__(
@@ -368,7 +426,7 @@ class SACTrainer(Trainer, Generic[ModelType]):
 
         self._action_dist_fn_2 = get_action_dist_function(env.action_space)
         self._action_dist_fn = get_action_dist_function(
-                env.action_space,
+                env.single_action_space if isinstance(env, gymnasium.vector.VectorEnv) else env.action_space,
                 config={'box': 'squashed'}
         )
         self._bound_action_fn = get_bound_action_fn(env.action_space, device)
@@ -536,8 +594,8 @@ class FeedforwardSACTrainer(SACTrainer[FeedforwardModel]):
         self.critic_optimizer.step()
 
         # Update actor
-        if step % self.config('policy_update_frequency') == 0:
-            for _ in range(self.config('policy_update_frequency')):
+        if step % self.config('policy_update_interval') == 0:
+            for _ in range(self.config('policy_update_interval')):
                 action_dist, _ = self._action_dist_fn(self.actor_model(batch.obs))
                 action = action_dist.rsample()
 
@@ -555,7 +613,7 @@ class FeedforwardSACTrainer(SACTrainer[FeedforwardModel]):
                 self.actor_optimizer.step()
 
         # Update target network
-        if step % self.config('target_update_frequency') == 0:
+        if step % self.config('target_update_interval') == 0:
             r = self.config('target_update_rate')
             for p1,p2 in zip(self.critic_model_target_1.parameters(), self.critic_model_1.parameters()):
                 p1.data = r*p2.data + (1-r)*p1.data
@@ -569,4 +627,290 @@ class FeedforwardSACTrainer(SACTrainer[FeedforwardModel]):
 ##################################################
 # Recurrent SAC
 
-# TODO
+
+CriticModels = namedtuple('CriticModels', [
+    'critic_model_1',
+    'critic_model_2',
+    'critic_model_target_1',
+    'critic_model_target_2',
+])
+
+
+class MiscWrapper:
+    def __init__(self, value):
+        self._value = value
+
+    def __getitem__(self, index):
+        return {
+            'actor_hidden':  tuple(x.index_select(0, torch.tensor([index], device=x.device)).squeeze(0) for x in self._value['actor_hidden']),
+            'critic_hidden': CriticModels._make(
+                tuple(x.index_select(0, torch.tensor([index], device=x.device)).squeeze(0) for x in hidden)
+                for hidden in self._value['critic_hidden']
+            ),
+        }
+
+
+class RecurrentSACTrainer(SACTrainer[RecurrentModel]):
+    def train(self, max_transitions: int | None = None, callbacks: SACCallbacks = DEFAULT_SAC_CALLBACKS, checkpoint: Checkpoint | None = None):
+        if checkpoint is None:
+            checkpoint = NullCheckpoint()
+
+        if isinstance(self.env, gymnasium.Env):
+            self.train_non_vec(max_transitions=max_transitions, callbacks=callbacks, checkpoint=checkpoint)
+        elif isinstance(self.env, gymnasium.vector.VectorEnv):
+            self.train_vec(max_transitions=max_transitions, callbacks=callbacks, checkpoint=checkpoint)
+        else:
+            raise ValueError(f'env must be a gymnasium.Env or gymnasium.vector.VectorEnv. Found {type(self.env)}')
+
+    def train_vec(self, max_transitions: int | None, callbacks: SACCallbacks, checkpoint: Checkpoint):
+        callbacks.on_start(locals())
+
+        """
+        Loop:
+            Collect transitions
+            Sample batch
+            Gradient step
+        """
+
+        if max_transitions is not None and max_transitions < 0:
+            max_transitions = None
+
+        num_envs = self.env.num_envs
+        history = VecHistoryBuffer(
+            max_len = self.config('buffer_size'),
+            num_envs = num_envs,
+            trajectory_length = self.config('trajectory_length'),
+            device = self.device,
+        )
+
+        actor_hidden = self.actor_model.init_hidden(num_envs)
+        critic_models = CriticModels(
+                critic_model_1 = self.critic_model_1,
+                critic_model_2 = self.critic_model_2,
+                critic_model_target_1 = self.critic_model_target_1,
+                critic_model_target_2 = self.critic_model_target_2,
+        )
+        critic_hidden = CriticModels._make([m.init_hidden(num_envs) for m in critic_models])
+
+        obs, _ = self.env.reset()
+        history.append_obs(obs, misc=MiscWrapper({'actor_hidden': actor_hidden, 'critic_hidden': critic_hidden}))
+        start_step = checkpoint.start_step // num_envs
+        transition_count = checkpoint.start_step
+        for step in itertools.count(start_step):
+            transition_count = step * num_envs
+            checkpoint.save(transition_count)
+
+            if max_transitions is not None and transition_count >= max_transitions:
+                break
+
+            callbacks.on_step_start(locals())
+
+            if step < self.config('warmup_steps'):
+                action = self.env.action_space.sample()
+            else:
+                with torch.no_grad():
+                    obs_tensor = to_tensor(obs, self.device)
+                    model_output = self.actor_model(obs_tensor, actor_hidden)
+
+                    action_dist, _ = self._action_dist_fn(model_output)
+                    action = action_dist.sample().cpu().numpy()
+                    action_tensor = to_tensor(action, self.device)
+
+                    actor_hidden = model_output['hidden']
+                    critic_hidden = CriticModels._make([
+                            m(obs_tensor, a, h)['hidden']
+                            for m,a,h in zip(critic_models, [action_tensor]*len(CriticModels._fields), critic_hidden)
+                    ])
+
+            # Step environment
+            obs, reward, terminated, truncated, info = self.env.step(action) # type: ignore
+
+            history.append_action(action)
+            history.append_obs(
+                    obs, reward, terminated, truncated,
+                    #misc={'actor_hidden': actor_hidden},
+                    misc=MiscWrapper({'actor_hidden': actor_hidden, 'critic_hidden': critic_hidden}),
+            )
+
+            callbacks.on_transition(locals())
+
+            if terminated.any() or truncated.any():
+                callbacks.on_episode_end(locals())
+
+            if step < self.config('warmup_steps'):
+                continue
+
+            self._gradient_step(step, history, callbacks)
+
+        if transition_count != checkpoint.start_step:
+            checkpoint.save(transition_count, force=True)
+
+        callbacks.on_end(locals())
+
+    def train_non_vec(self, max_transitions: int | None, callbacks: SACCallbacks, checkpoint: Checkpoint):
+        raise NotImplementedError()
+
+        callbacks.on_start(locals())
+
+        """
+        Loop:
+            Collect transitions
+            Sample batch
+            Gradient step
+        """
+
+        history = HistoryBuffer(
+            max_len = self.config('buffer_size'),
+        )
+
+        done = True
+        obs = None
+        for steps in itertools.count():
+            if done:
+                obs, _ = self.env.reset()
+                done = False
+
+                history.append_obs(obs)
+            else:
+                with torch.no_grad():
+                    model_output = self.actor_model(to_tensor(obs, self.device))
+
+                    action_dist, _ = self._action_dist_fn(model_output)
+                    action = action_dist.sample().cpu().numpy()
+
+                # Step environment
+                obs, reward, terminated, truncated, info = self.env.step(action) # type: ignore
+                done = terminated or truncated
+
+                history.append_action(action)
+                history.append_obs(
+                        obs, reward, done,
+                )
+
+                callbacks.on_transition(locals())
+
+
+            if done:
+                callbacks.on_episode_end(locals())
+
+            if steps < self.config('warmup_steps'):
+                continue
+
+            self._gradient_step(history, callbacks)
+
+        callbacks.on_end(locals())
+
+    def _gradient_step(self, step: int, history: HistoryBuffer | VecHistoryBuffer, callbacks: SACCallbacks = DEFAULT_SAC_CALLBACKS):
+        # Sample a random batch
+        batch = history.trajectories.sample_batch(self.config('batch_size'))
+        batch_obs = batch.obs.permute(1,0,2) # [trajectory_length, batch, ...]
+        batch_action = batch.action.permute(1,0,2) # [trajectory_length, batch, ...]
+        batch_next_obs = batch.next_obs.permute(1,0,2) # [trajectory_length, batch, ...]
+        batch_reward = batch.reward.permute(1,0).float() # [trajectory_length, batch]
+        batch_terminated = batch.terminated.permute(1,0) # [trajectory_length, batch]
+
+        # Update critic
+        def get_first_critic_hidden(batch_misc, key, model_name):
+            return default_collate([getattr(m[0][key],model_name) for m in batch_misc])
+        def get_first_actor_hidden(batch_misc):
+            return default_collate([m[0]['actor_hidden'] for m in batch_misc])
+        def compute_critic_output(models: RecurrentModel, obs, action, hidden):
+            """
+            Args:
+                obs: [trajectory_length, batch, *obs_shape]
+                action: [trajectory_length, batch, *action_shape]
+                hidden: [batch, ...]
+            Returns: value: [trajectory_length, batch, 1]
+            """
+            outputs = []
+            for o,a in zip(obs.unbind(0), action.unbind(0)): # dims: [trajectory_length, batch, ...]
+                o = to_tensor(o, self.device) # [batch, *obs_shape]
+                a = to_tensor(a, self.device) # [batch, *action_shape]
+                mo = models(o,a,hidden)
+                hidden = mo['hidden']
+                outputs.append(mo['value'].squeeze(1)) # [batch, 1] -> [batch]
+            return torch.stack([o for o in outputs], dim=0)
+        def sample_actions(model: RecurrentModel, obs, hidden):
+            """
+            Output shape: [trajectory_length, batch, action_dim]
+            """
+            actions = []
+            action_log_probs = []
+            for o in obs.unbind(0): # dims: [trajectory_length, batch, ...]
+                o = to_tensor(o, self.device)
+                mo = model(o,hidden)
+                hidden = mo['hidden']
+                action_dist, _ = self._action_dist_fn(mo)
+                action = action_dist.rsample()
+                actions.append(action)
+                action_log_probs.append(action_dist.log_prob(action).sum(dim=1, keepdims=False)) # type: ignore
+            return torch.stack(actions, dim=0), torch.stack(action_log_probs, dim=0)
+        y_pred_1 = compute_critic_output(
+                self.critic_model_1, batch_obs, batch_action,
+                get_first_critic_hidden(batch.misc, 'critic_hidden', 'critic_model_1')
+        )
+        y_pred_2 = compute_critic_output(
+                self.critic_model_2, batch_obs, batch_action,
+                get_first_critic_hidden(batch.misc, 'critic_hidden', 'critic_model_2')
+        )
+        with torch.no_grad():
+            next_action, next_action_log_prob = sample_actions(
+                    self.actor_model, batch_next_obs,
+                    get_first_actor_hidden(batch.next_misc),
+            )
+
+            next_state_q = torch.min(
+                    compute_critic_output(
+                        self.critic_model_target_1, batch_next_obs, next_action,
+                        get_first_critic_hidden(batch.next_misc, 'critic_hidden', 'critic_model_target_1')
+                    ),
+                    compute_critic_output(
+                        self.critic_model_target_2, batch_next_obs, next_action,
+                        get_first_critic_hidden(batch.next_misc, 'critic_hidden', 'critic_model_target_2')
+                    ),
+            )
+            next_action_entropy = self.config('entropy_coeff') * next_action_log_prob
+            y_target = batch_reward + self.config('discount') * batch_terminated.logical_not() * (next_state_q - next_action_entropy)
+
+        assert y_pred_1.shape == y_target.shape == y_pred_2.shape, f'Shape mismatch: {y_pred_1.shape} {y_target.shape} {y_pred_2.shape}'
+        critic_loss_1 = torch.nn.functional.mse_loss(y_pred_1, y_target)
+        critic_loss_2 = torch.nn.functional.mse_loss(y_pred_2, y_target)
+        critic_loss = critic_loss_1 + critic_loss_2
+        self.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        self.critic_optimizer.step()
+
+        # Update actor
+        if step % self.config('policy_update_interval') == 0:
+            for _ in range(self.config('policy_update_interval')):
+                action, action_log_prob = sample_actions(
+                        self.actor_model, batch_obs,
+                        get_first_actor_hidden(batch.misc),
+                )
+
+                q1 = compute_critic_output(
+                        self.critic_model_1, batch_obs, action,
+                        get_first_critic_hidden(batch.misc, 'critic_hidden', 'critic_model_1'),
+                )
+                q2 = compute_critic_output(
+                        self.critic_model_2, batch_obs, action,
+                        get_first_critic_hidden(batch.misc, 'critic_hidden', 'critic_model_2'),
+                )
+                q = torch.min(q1, q2)
+
+                actor_loss = q - self.config('entropy_coeff') * action_log_prob
+                actor_loss = -actor_loss.mean()
+                self.actor_optimizer.zero_grad()
+                actor_loss.backward()
+                self.actor_optimizer.step()
+
+        # Update target network
+        if step % self.config('target_update_interval') == 0:
+            r = self.config('target_update_rate')
+            for p1,p2 in zip(self.critic_model_target_1.parameters(), self.critic_model_1.parameters()):
+                p1.data = r*p2.data + (1-r)*p1.data
+            for p1,p2 in zip(self.critic_model_target_2.parameters(), self.critic_model_2.parameters()):
+                p1.data = r*p2.data + (1-r)*p1.data
+
+        # Callbacks
+        callbacks.on_gradients_end(locals())

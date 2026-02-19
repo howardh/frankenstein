@@ -115,6 +115,9 @@ class SquashedGaussian(torch.distributions.Distribution):
         # TODO
         return self.normal.entropy() * 0
 
+    def __repr__(self):
+        return f'SquashedGaussian(loc={self.normal.loc}, scale={self.normal.scale}, low={self._bias2 - self._scale2}, high={self._bias2 + self._scale2})'
+
 
 def action_dist_continuous(net_output, n=None):
     action_mean = net_output['action_mean'][:n]
@@ -170,17 +173,18 @@ def format_rate(num, unit_singular, unit_plural, time_diff):
 # Models
 
 
-class FeedforwardModel(torch.nn.Module):
-    def forward(self, x):
+class Model(torch.nn.Module):
+    def forward(self, *inputs):
         raise NotImplementedError()
 
 
-class RecurrentModel(torch.nn.Module):
+class FeedforwardModel(Model):
+    ...
+
+
+class RecurrentModel(Model):
     def __init__(self):
         super().__init__()
-
-    def forward(self, x, hidden):
-        raise NotImplementedError()
 
     def init_hidden(self, batch_size):
         raise NotImplementedError()
@@ -190,10 +194,9 @@ class RecurrentModel(torch.nn.Module):
         raise NotImplementedError()
 
 
-class SequenceModel(torch.nn.Module):
+class SequenceModel(Model):
     """ Model that accept a sequence of transitions.
 
     Example: decision transformers
     """
-    def forward(self, x):
-        raise NotImplementedError()
+    ...

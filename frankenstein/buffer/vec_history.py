@@ -232,7 +232,8 @@ class ListBackedVecHistoryBuffer():
     def get_trajectory(self, index) -> Trajectory:
         if index >= self.num_trajectories:
             raise IndexError('Index out of range')
-        assert self.trajectory_length is not None
+        if self.trajectory_length is None:
+            raise ValueError('Trajectory sampling is disabled. To enable, set `trajectory_length` to a positive integer.')
 
         num_obs_per_env = len(self.obs_history)
         trajectories_per_env = num_obs_per_env - self.trajectory_length
@@ -253,6 +254,10 @@ class ListBackedVecHistoryBuffer():
             misc = [m[e] for m in self.misc_history[s0]],
             next_misc = [m[e] for m in self.misc_history[s1]],
         )
+
+    def get_random_trajectory(self):
+        index = np.random.randint(0, self.num_trajectories)
+        return self.get_trajectory(index)
 
     @property
     def transitions(self):

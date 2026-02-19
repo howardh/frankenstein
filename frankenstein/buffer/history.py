@@ -1,3 +1,5 @@
+import numpy as np
+import numpy.typing as npt
 import torch
 from torch.utils.data.dataloader import default_collate
 from tensordict import TensorDict
@@ -45,7 +47,7 @@ class HistoryBuffer():
         self._trajectory_view = TrajectoryView(self)
 
     def append_obs(self,
-                   obs: torch.Tensor | TensorDict,
+                   obs,
                    reward: float | None = None,
                    terminated: bool = False,
                    truncated: bool = False,
@@ -146,6 +148,10 @@ class HistoryBuffer():
             misc = self.misc_history[index:index+self.trajectory_length],
             next_misc = self.misc_history[index+1:index+self.trajectory_length+1]
         )
+
+    def get_random_trajectory(self):
+        index = np.random.randint(0, self.num_trajectories)
+        return self.get_trajectory(index)
 
     @property
     def transitions(self):

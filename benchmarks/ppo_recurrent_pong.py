@@ -28,7 +28,8 @@ class Model(RecurrentModel):
         self.lstm = torch.nn.LSTMCell(64*22*16, HIDDEN_SIZE)
         self.fc_policy = torch.nn.Linear(HIDDEN_SIZE, act_dim)
         self.fc_value = torch.nn.Linear(HIDDEN_SIZE, 1)
-    def forward(self, x, hidden):
+    def forward(self, *inputs):
+        x, hidden = inputs
         x = x.permute(0, 3, 1, 2).float() / 255
         x = self.conv(x)
         h, c = self.lstm(x, hidden)

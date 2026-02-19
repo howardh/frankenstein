@@ -14,7 +14,8 @@ if __name__ == '__main__':
             self.policy = torch.nn.Parameter(
                     torch.zeros([obs_dim, act_dim])
             )
-        def forward(self, x):
+        def forward(self, *inputs):
+            x, = inputs
             x = x.long()
             return {
                 'action': self.policy[x,:],

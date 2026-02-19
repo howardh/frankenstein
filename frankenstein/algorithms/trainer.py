@@ -40,6 +40,10 @@ class Checkpoint:
         self.frequency = frequency
         self.path = path
 
+        for key, value in self.data.items():
+            if not hasattr(value, "state_dict") or not hasattr(value, "load_state_dict"):
+                raise ValueError(f"Value for key {key} does not have 'state_dict' and 'load_state_dict' methods.")
+
         self.start_step = 0
 
         self._last_checkpoint_step = 0

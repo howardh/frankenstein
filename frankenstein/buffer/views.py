@@ -60,6 +60,11 @@ class Trajectory():
     next_misc: list[Any]
 
 
+@dataclass
+class TrajectoryBatch(TransitionBatch):
+    ... # Same as TransitionBatch
+
+
 class TransitionView():
     def __init__(self, buffer):
         self._buffer = buffer
@@ -114,3 +119,22 @@ class TrajectoryView():
 
     def __getitem__(self, index):
         return self._buffer.get_trajectory(index)
+
+    def sample_batch(self, batch_size: int, replacement=True):
+        device = self._buffer.device
+        if replacement:
+            trajectories = [self._buffer.get_random_trajectory() for _ in range(batch_size)]
+        else:
+            # XXX: Is this also as slow as the TransitionView version?
+            indices = torch.randint(0, len(self), (batch_size,))
+            trajectories = [self[i] for i in indices]
+        return TrajectoryBatch(
+            obs = default_collate([t.obs for t in trajectories]).to(device),
+            action = default_collate([t.action for t in trajectories]).to(device),
+            next_obs = default_collate([t.next_obs for t in trajectories]).to(device),
+            reward = torch.stack([t.reward for t in trajectories]).to(device),
+            terminated = torch.stack([t.terminated for t in trajectories]).to(device),
+            truncated = torch.stack([t.truncated for t in trajectories]).to(device),
+            misc = [t.misc for t in trajectories],
+            next_misc = [t.next_misc for t in trajectories],
+        )

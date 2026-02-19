@@ -215,3 +215,31 @@ def test_trajectory_out_of_bounds():
     buffer.trajectories[0]
     with pytest.raises(IndexError):
         buffer.trajectories[1]
+
+
+def test_trajectory_batch():
+    buffer = Buffer(
+        max_len=10,
+        trajectory_length=3,
+    )
+    
+    obs = np.array([1, 1])
+
+    buffer.append_obs(obs=obs)
+
+    for _ in range(3):
+        buffer.append_action(action=0)
+        buffer.append_obs(obs=obs, reward=0, terminated=False)
+
+        buffer.append_action(action=1)
+        buffer.append_obs(obs=obs, reward=0, terminated=True)
+
+        buffer.append_obs(obs=obs, reward=0, terminated=False)
+
+    batch = buffer.trajectories.sample_batch(4)
+    assert batch.obs.shape == (4, 3, 2)
+    assert batch.next_obs.shape == (4, 3, 2)
+    assert batch.action.shape == (4, 3)
+    assert batch.reward.shape == (4, 3)
+    assert batch.terminated.shape == (4, 3)
+    assert batch.truncated.shape == (4, 3)

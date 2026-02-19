@@ -479,6 +479,67 @@ def test_transition_batch():
     assert batch.truncated.shape == (4, 1)
 
 
+# Test trajectories
+
+
+def test_trajectory_out_of_bounds():
+    ...
+
+
+def test_trajectory_unspecified_length():
+    """ If the trajectory length is not specified, then it should raise an error. """
+    buffer = Buffer(
+        num_envs=2,
+        max_len=10,
+        trajectory_length=None,
+    )
+
+    obs = np.array([[1, 1], [2, 2]])
+
+    buffer.append_obs(obs=obs)
+
+    buffer.append_action(action=np.array([0, 0]))
+    buffer.append_obs(obs=obs, reward=np.array([0, 0]), terminated=np.array([False, False]))
+
+    buffer.append_action(action=np.array([1, 1]))
+    buffer.append_obs(obs=obs, reward=np.array([0, 0]), terminated=np.array([True, False]))
+
+    buffer.append_action(action=np.array([-1, 2]))
+    buffer.append_obs(obs=obs, reward=np.array([0, 0]), terminated=np.array([False, False]))
+
+    with pytest.raises(Exception):
+        buffer.get_trajectory(0)
+
+
+def test_trajectory_batch():
+    buffer = Buffer(
+        num_envs=2,
+        max_len=10,
+        trajectory_length=3,
+    )
+    
+    obs = np.array([[1, 1], [2, 2]])
+
+    buffer.append_obs(obs=obs)
+
+    buffer.append_action(action=np.array([0, 0]))
+    buffer.append_obs(obs=obs, reward=np.array([0, 0]), terminated=np.array([False, False]))
+
+    buffer.append_action(action=np.array([1, 1]))
+    buffer.append_obs(obs=obs, reward=np.array([0, 0]), terminated=np.array([True, False]))
+
+    buffer.append_action(action=np.array([-1, 2]))
+    buffer.append_obs(obs=obs, reward=np.array([0, 0]), terminated=np.array([False, False]))
+
+    batch = buffer.trajectories.sample_batch(4)
+    assert batch.obs.shape == (4, 3, 2)
+    assert batch.next_obs.shape == (4, 3, 2)
+    assert batch.action.shape == (4, 3)
+    assert batch.reward.shape == (4, 3)
+    assert batch.terminated.shape == (4, 3)
+    assert batch.truncated.shape == (4, 3)
+
+
 @pytest.mark.skip
 def test_get_transition_performance():
     import gymnasium

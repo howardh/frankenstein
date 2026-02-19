@@ -28,7 +28,8 @@ class Model(FeedforwardModel):
         )
         self.fc_policy = torch.nn.Linear(512, act_dim)
         self.fc_value = torch.nn.Linear(512, 1)
-    def forward(self, x):
+    def forward(self, *inputs):
+        x, = inputs
         x = x / 255.0
         x = self.conv(x)
         return {

@@ -1,11 +1,15 @@
+"""
+Ant with the recurrent SAC implementation, but parameters selected to mimic the feedforward version as closely as possible. This serves as a sanity check.
+"""
+
 import argparse
 import itertools
 
 import gymnasium
 import torch
 
-from frankenstein.algorithms.sac.trainer import FeedforwardSACTrainer
-from frankenstein.algorithms.utils import FeedforwardModel
+from frankenstein.algorithms.sac.trainer import RecurrentSACTrainer
+from frankenstein.algorithms.utils import RecurrentModel
 from frankenstein.algorithms.trainer import Checkpoint
 
 
@@ -13,7 +17,7 @@ LOGSTD_MIN = -5
 LOGSTD_MAX = 2
 
 
-class ActorModel(FeedforwardModel):
+class ActorModel(RecurrentModel):
     def __init__(self, obs_dim, act_dim, hidden_dims=64):
         super().__init__()
         self.fc = torch.nn.Sequential(
@@ -25,7 +29,7 @@ class ActorModel(FeedforwardModel):
         self.fc_action_mean = torch.nn.Linear(hidden_dims, act_dim)
         self.fc_action_std = torch.nn.Linear(hidden_dims, act_dim)
     def forward(self, *inputs):
-        x, = inputs
+        x, hidden = inputs
         x = x.float()
         x = self.fc(x)
         mean = self.fc_action_mean(x)
@@ -35,10 +39,20 @@ class ActorModel(FeedforwardModel):
         return {
             'action_mean': mean,
             'action_logstd': logstd,
+            'hidden': hidden,
         }
+    def init_hidden(self, batch_size):
+        device = next(self.parameters()).device
+        return (
+            torch.zeros(batch_size, 0, device=device),
+            torch.zeros(batch_size, 0, device=device),
+        )
+    @property
+    def hidden_batch_dims(self):
+        return (0, 0)
 
 
-class CriticModel(FeedforwardModel):
+class CriticModel(RecurrentModel):
     def __init__(self, obs_dim, act_dim, hidden_dims=64):
         super().__init__()
         self.fc = torch.nn.Sequential(
@@ -49,10 +63,22 @@ class CriticModel(FeedforwardModel):
             torch.nn.Linear(hidden_dims, 1)
         )
     def forward(self, *inputs):
-        x, a = inputs
+        x, a, hidden = inputs
         x = torch.cat([x, a], dim=1)
         x = x.float()
-        return { 'value': self.fc(x) }
+        return {
+            'value': self.fc(x),
+            'hidden': hidden,
+        }
+    def init_hidden(self, batch_size):
+        device = next(self.parameters()).device
+        return (
+            torch.zeros(batch_size, 0, device=device),
+            torch.zeros(batch_size, 0, device=device),
+        )
+    @property
+    def hidden_batch_dims(self):
+        return (0, 0)
 
 
 def init_arg_parser():
@@ -76,6 +102,7 @@ def init_arg_parser():
     parser.add_argument('--critic-hidden-size', type=int, default=256)
 
     # ...
+    parser.add_argument('--max-transitions', type=int, default=10_000_000)
     parser.add_argument('--checkpoint', type=str, default=None)
 
     return parser
@@ -89,7 +116,7 @@ def main(args):
     print('device', device)
 
     env = gymnasium.make_vec(
-        'Ant-v4', num_envs=1,
+        'Ant-v4', num_envs=2,
         wrappers=[
             lambda env: gymnasium.wrappers.RecordEpisodeStatistics(env),
         ]
@@ -107,7 +134,7 @@ def main(args):
     actor_optimizer = torch.optim.Adam(actor_model.parameters(), lr=args.actor_lr)
     critic_optimizer = torch.optim.Adam(itertools.chain(critic_model_1.parameters(), critic_model_2.parameters()), lr=args.critic_lr)
 
-    trainer = FeedforwardSACTrainer(
+    trainer = RecurrentSACTrainer(
             env = env,
             actor_model = actor_model,
             critic_model_1 = critic_model_1,
@@ -117,6 +144,7 @@ def main(args):
             device = device,
             config={
                 'buffer_size': args.buffer_size,
+                'trajectory_length': 1,
                 'warmup_steps': args.warmup_steps,
                 'batch_size': args.batch_size,
                 'discount': args.discount,
@@ -138,7 +166,7 @@ def main(args):
         }, frequency=(30, 'minutes'), path=args.checkpoint)
     else:
         checkpoint = None
-    trainer.train(max_transitions=1_000_000, checkpoint=checkpoint)
+    trainer.train(max_transitions=args.max_transitions, checkpoint=checkpoint)
 
 
 if __name__ == '__main__':

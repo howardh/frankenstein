@@ -21,7 +21,8 @@ class Model(FeedforwardModel):
         self.fc_value= torch.nn.Linear(hidden_dims, 1)
         self.fc_action_mean = torch.nn.Linear(hidden_dims, act_dim)
         self.fc_action_std = torch.nn.Parameter(torch.zeros(act_dim))
-    def forward(self, x):
+    def forward(self, *inputs):
+        x, = inputs
         batch_size = x.shape[0]
         x = torch.relu(self.fc(x))
         return {

@@ -4,8 +4,8 @@ import itertools
 import gymnasium
 import torch
 
-from frankenstein.algorithms.sac.trainer import FeedforwardSACTrainer
-from frankenstein.algorithms.utils import FeedforwardModel
+from frankenstein.algorithms.sac.trainer import RecurrentSACTrainer
+from frankenstein.algorithms.utils import RecurrentModel
 from frankenstein.algorithms.trainer import Checkpoint
 
 
@@ -13,46 +13,66 @@ LOGSTD_MIN = -5
 LOGSTD_MAX = 2
 
 
-class ActorModel(FeedforwardModel):
+class ActorModel(RecurrentModel):
     def __init__(self, obs_dim, act_dim, hidden_dims=64):
         super().__init__()
-        self.fc = torch.nn.Sequential(
-            torch.nn.Linear(obs_dim, hidden_dims),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_dims, hidden_dims),
-            torch.nn.ReLU(),
-        )
+        self.hidden_dims = hidden_dims
+        self.fc = torch.nn.Linear(obs_dim, hidden_dims)
+        self.lstm = torch.nn.LSTMCell(hidden_dims, hidden_dims)
         self.fc_action_mean = torch.nn.Linear(hidden_dims, act_dim)
         self.fc_action_std = torch.nn.Linear(hidden_dims, act_dim)
     def forward(self, *inputs):
-        x, = inputs
+        x, hidden = inputs
         x = x.float()
         x = self.fc(x)
-        mean = self.fc_action_mean(x)
-        logstd = self.fc_action_std(x)
+        x = torch.relu(x)
+        h,c = self.lstm(x, hidden)
+        mean = self.fc_action_mean(h)
+        logstd = self.fc_action_std(h)
         logstd = torch.tanh(logstd)
         logstd= 0.5 * (logstd + 1) * (LOGSTD_MAX - LOGSTD_MIN) + LOGSTD_MIN  # y = 2[(x - min) / (max - min) - 0.5] -> x = (y + 1) * (max - min) / 2 + min
         return {
             'action_mean': mean,
             'action_logstd': logstd,
+            'hidden': (h, c),
         }
+    def init_hidden(self, batch_size):
+        device = next(self.parameters()).device
+        return (
+            torch.zeros(batch_size, self.hidden_dims, device=device),
+            torch.zeros(batch_size, self.hidden_dims, device=device),
+        )
+    @property
+    def hidden_batch_dims(self):
+        return (0, 0)
 
 
-class CriticModel(FeedforwardModel):
+class CriticModel(RecurrentModel):
     def __init__(self, obs_dim, act_dim, hidden_dims=64):
         super().__init__()
-        self.fc = torch.nn.Sequential(
-            torch.nn.Linear(obs_dim+act_dim, hidden_dims),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_dims, hidden_dims),
-            torch.nn.ReLU(),
-            torch.nn.Linear(hidden_dims, 1)
-        )
+        self.hidden_dims = hidden_dims
+        self.fc_in = torch.nn.Linear(obs_dim+act_dim, hidden_dims)
+        self.lstm = torch.nn.LSTMCell(hidden_dims, hidden_dims)
+        self.fc_out = torch.nn.Linear(hidden_dims, 1)
     def forward(self, *inputs):
-        x, a = inputs
+        x, a, hidden = inputs
         x = torch.cat([x, a], dim=1)
         x = x.float()
-        return { 'value': self.fc(x) }
+        x = self.fc_in(x)
+        h, c = self.lstm(x, hidden)
+        return {
+            'value': self.fc_out(h),
+            'hidden': (h, c),
+        }
+    def init_hidden(self, batch_size):
+        device = next(self.parameters()).device
+        return (
+            torch.zeros(batch_size, self.hidden_dims, device=device),
+            torch.zeros(batch_size, self.hidden_dims, device=device),
+        )
+    @property
+    def hidden_batch_dims(self):
+        return (0, 0)
 
 
 def init_arg_parser():
@@ -62,6 +82,7 @@ def init_arg_parser():
     parser.add_argument('--actor-lr', type=float, default=3e-4)
     parser.add_argument('--critic-lr', type=float, default=1e-3)
     parser.add_argument('--buffer-size', type=int, default=1_000_000)
+    parser.add_argument('--trajectory-length', type=int, default=128)
     parser.add_argument('--warmup-steps', type=int, default=5_000)
     parser.add_argument('--batch-size', type=int, default=256)
     parser.add_argument('--discount', type=float, default=0.99)
@@ -76,6 +97,7 @@ def init_arg_parser():
     parser.add_argument('--critic-hidden-size', type=int, default=256)
 
     # ...
+    parser.add_argument('--max-transitions', type=int, default=10_000_000)
     parser.add_argument('--checkpoint', type=str, default=None)
 
     return parser
@@ -89,7 +111,7 @@ def main(args):
     print('device', device)
 
     env = gymnasium.make_vec(
-        'Ant-v4', num_envs=1,
+        'Ant-v4', num_envs=2,
         wrappers=[
             lambda env: gymnasium.wrappers.RecordEpisodeStatistics(env),
         ]
@@ -107,7 +129,7 @@ def main(args):
     actor_optimizer = torch.optim.Adam(actor_model.parameters(), lr=args.actor_lr)
     critic_optimizer = torch.optim.Adam(itertools.chain(critic_model_1.parameters(), critic_model_2.parameters()), lr=args.critic_lr)
 
-    trainer = FeedforwardSACTrainer(
+    trainer = RecurrentSACTrainer(
             env = env,
             actor_model = actor_model,
             critic_model_1 = critic_model_1,
@@ -117,6 +139,7 @@ def main(args):
             device = device,
             config={
                 'buffer_size': args.buffer_size,
+                'trajectory_length': args.trajectory_length,
                 'warmup_steps': args.warmup_steps,
                 'batch_size': args.batch_size,
                 'discount': args.discount,
@@ -138,7 +161,7 @@ def main(args):
         }, frequency=(30, 'minutes'), path=args.checkpoint)
     else:
         checkpoint = None
-    trainer.train(max_transitions=1_000_000, checkpoint=checkpoint)
+    trainer.train(max_transitions=args.max_transitions, checkpoint=checkpoint)
 
 
 if __name__ == '__main__':
