@@ -1,11 +1,15 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from jaxtyping import Float, Bool
+import numpy as np
 import torch
 from torch.utils.data.dataloader import default_collate
 from tensordict import TensorDict
+
+if TYPE_CHECKING: # Avoid circular import problems
+    from frankenstein.buffer.vec_history import NumpyBackedVecHistoryBuffer, SerializeFn
 
 
 @dataclass
@@ -138,3 +142,18 @@ class TrajectoryView():
             misc = [t.misc for t in trajectories],
             next_misc = [t.next_misc for t in trajectories],
         )
+
+
+class NumpyBackedTrajectoryView():
+    def __init__(self, buffer: 'NumpyBackedVecHistoryBuffer', deserialize_trajectory_fn: 'SerializeFn'):
+        self._buffer = buffer
+        self._deserialize_trajectory_fn = deserialize_trajectory_fn
+
+    def __len__(self):
+        return self._buffer.num_trajectories
+
+    def __getitem__(self, index):
+        return self._buffer.get_trajectory(index)
+
+    def sample_batch(self, batch_size: int, replacement=True):
+        return self._buffer.get_random_batch_serialized_trajectory(batch_size, replacement)

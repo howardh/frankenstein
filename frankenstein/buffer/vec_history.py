@@ -6,7 +6,7 @@ from numpy.random.mtrand import f
 import torch
 from torch.utils.data.dataloader import default_collate
 
-from .views import TrajectoryView, TransitionView, Trajectory, Transition
+from .views import NumpyBackedTrajectoryView, TrajectoryView, TransitionView, Trajectory, Transition
 
 
 @overload
@@ -39,6 +39,9 @@ def to_device(data, device):
 
 
 class ListBackedVecHistoryBuffer():
+    __slots__ = (
+            '_num_envs', 'device', 'max_len', 'trajectory_length', 'obs_history', 'action_history', 'reward_history', 'terminated_history', 'truncated_history', 'misc_history', 'default_reward', '_num_transitions', '_transition_view', '_trajectory_view'
+    )
     def __init__(self,
                  max_len: int,
                  num_envs: int,
@@ -357,14 +360,22 @@ def make_default_serde() -> tuple[SerializeFn, SerializeFn, SerializeFn]:
             else:
                 return x.view(dtype).reshape(shape[1:])
         def deserialize_trajectory(x):
-            # x: [trajectory length, flattened_data_length]
             nonlocal shape, dtype
             if shape is None or dtype is None:
                 raise ValueError(f'Must call serialization function at least once with a sample {name} to infer the required shape and dtype for the {name} deserialization. Alternatively, you can provide the shape and dtype as arguments to `make_default_serde`.')
-            if isinstance(dtype, torch.dtype):
-                return torch.from_numpy(x).view(dtype).view(-1, *shape[1:])
-            else:
-                return x.view(dtype).reshape(-1, *shape[1:])
+            # Two cases:
+            # x: [batch, trajectory length, flattened_data_length]
+            # x: [trajectory length, flattened_data_length]
+            if len(x.shape) == 2:
+                if isinstance(dtype, torch.dtype):
+                    return torch.from_numpy(x).view(dtype).view(-1, *shape[1:])
+                else:
+                    return x.view(dtype).reshape(-1, *shape[1:])
+            if len(x.shape) == 3:
+                if isinstance(dtype, torch.dtype):
+                    return torch.from_numpy(x).view(dtype).view(x.shape[0], x.shape[1], *shape[1:])
+                else:
+                    return x.view(dtype).reshape(x.shape[0], x.shape[1], *shape[1:])
         return serialize, deserialize_transition, deserialize_trajectory
     obs = make('obs')
     reward = make('reward')
@@ -405,6 +416,7 @@ class DataSlices(NamedTuple):
 
 
 class NumpyBackedVecHistoryBuffer():
+    __slots__ = ( 'max_len', 'num_envs', 'data_size', 'serialize_fn', 'deserialize_transition_fn', 'deserialize_trajectory_fn', 'trajectory_length', 'device', '_insert_index', '_incomplete_row', '_num_rows', '_transition_view', '_trajectory_view', 'obs_history', 'action_history', 'reward_history', 'terminated_history', 'truncated_history', 'misc_history' )
     def __init__(self,
                  max_len: int,
                  num_envs: int,
@@ -435,8 +447,10 @@ class NumpyBackedVecHistoryBuffer():
             self.serialize_fn = default_serialize_fn
             self.deserialize_transition_fn = default_deserialize_transition_fn
             self.deserialize_trajectory_fn = default_deserialize_trajectory_fn
+        elif self.serialize_fn is not None and self.deserialize_transition_fn is not None and self.deserialize_trajectory_fn is not None:
+            pass # All good
         elif self.serialize_fn is not None or self.deserialize_transition_fn is not None or self.deserialize_trajectory_fn is not None:
-            raise ValueError('Must provide all or none of `serialize_fn`, `deserialize_transition_fn`, and `deserialize_trajectory_fn`')
+            raise ValueError(f'Must provide all or none of `serialize_fn`, `deserialize_transition_fn`, and `deserialize_trajectory_fn`. `serialize_fn`: {self.serialize_fn is not None}, `deserialize_transition_fn`: {self.deserialize_transition_fn is not None}, `deserialize_trajectory_fn`: {self.deserialize_trajectory_fn is not None}')
 
         self._insert_index = 0
         self._incomplete_row = False
@@ -457,8 +471,9 @@ class NumpyBackedVecHistoryBuffer():
         self.terminated_history = np.zeros((max_len, num_envs), dtype=bool)
         self.truncated_history = np.zeros((max_len, num_envs), dtype=bool)
 
+        assert self.deserialize_trajectory_fn is not None, 'Deserialization function for trajectories must be provided'
         self._transition_view = TransitionView(self)
-        self._trajectory_view = TrajectoryView(self)
+        self._trajectory_view = NumpyBackedTrajectoryView(self, self.deserialize_trajectory_fn)
 
     def _append_obs_history(self, index, value):
         assert self.serialize_fn is not None, 'Serialization function must be provided to append data'
@@ -599,7 +614,6 @@ class NumpyBackedVecHistoryBuffer():
             self.deserialize_transition_fn.misc(self.misc_history[i1,e]),
         )
 
-
     @property
     def num_trajectories(self):
         if self.trajectory_length is None:
@@ -643,6 +657,91 @@ class NumpyBackedVecHistoryBuffer():
             next_misc = self.deserialize_trajectory_fn.misc(take_slice_wrap(self.misc_history, s1)),
         )
 
+    def get_random_trajectory(self):
+        index = np.random.randint(0, self.num_trajectories)
+        return self.get_trajectory(index)
+
+    def get_random_batch_serialized_trajectory(self, batch_size: int, replacement=False):
+        assert self.trajectory_length is not None
+        assert self.deserialize_trajectory_fn is not None
+
+        indices = np.random.choice(self.num_trajectories, size=batch_size, replace=replacement)
+        slices = []
+        for index in indices:
+            num_obs_per_env = self._num_rows
+            trajectories_per_env = num_obs_per_env - self.trajectory_length
+            env_index = index // trajectories_per_env
+            step_index = index % trajectories_per_env
+            if self._num_rows == self.max_len:
+                step_index = (step_index + self._insert_index) % self.max_len
+
+            e = env_index
+            s0 = slice(step_index, step_index+self.trajectory_length)
+            s1 = slice(step_index+1, step_index+self.trajectory_length+1)
+
+            slices.append((e, s0, s1))
+
+        def take_slice_wrap(arr, e, s):
+            if s.stop > self.max_len:
+                return np.concatenate([arr[s, e], arr[:s.stop % self.max_len, e]], axis=0)
+            else:
+                return arr[s, e]
+
+        obs = self.deserialize_trajectory_fn.obs(
+            np.stack([
+                take_slice_wrap(self.obs_history, e, s0)
+                for e, s0, s1 in slices
+            ])
+        )
+        action = self.deserialize_trajectory_fn.action(
+            np.stack([
+                take_slice_wrap(self.action_history, e, s0)
+                for e, s0, s1 in slices
+            ])
+        )
+        next_obs = self.deserialize_trajectory_fn.obs(
+            np.stack([
+                take_slice_wrap(self.obs_history, e, s1)
+                for e, s0, s1 in slices
+            ])
+        )
+        reward = self.deserialize_trajectory_fn.reward(
+            np.stack([
+                take_slice_wrap(self.reward_history, e, s1)
+                for e, s0, s1 in slices
+            ])
+        )
+        terminated = torch.from_numpy(np.stack([
+            take_slice_wrap(self.terminated_history, e, s1)
+            for e, s0, s1 in slices
+        ]))
+        truncated = torch.from_numpy(np.stack([
+            take_slice_wrap(self.truncated_history, e, s1)
+            for e, s0, s1 in slices
+        ]))
+        misc = self.deserialize_trajectory_fn.misc(
+            np.stack([
+                take_slice_wrap(self.misc_history, e, s0)
+                for e, s0, s1 in slices
+            ])
+        )
+        next_misc = self.deserialize_trajectory_fn.misc(
+            np.stack([
+                take_slice_wrap(self.misc_history, e, s1)
+                for e, s0, s1 in slices
+            ])
+        )
+
+        return Trajectory(
+            obs = torch.from_numpy(obs).to(self.device),
+            action = torch.from_numpy(action).to(self.device),
+            next_obs = torch.from_numpy(next_obs).to(self.device),
+            reward = torch.from_numpy(reward).to(self.device),
+            terminated = terminated.to(self.device),
+            truncated = truncated.to(self.device),
+            misc = misc,
+            next_misc = next_misc,
+        )
 
     @property
     def transitions(self):

@@ -102,7 +102,7 @@ def init_arg_parser():
     parser.add_argument('--critic-hidden-size', type=int, default=256)
 
     # ...
-    parser.add_argument('--max-transitions', type=int, default=10_000_000)
+    parser.add_argument('--max-transitions', type=int, default=1_000_000)
     parser.add_argument('--checkpoint', type=str, default=None)
 
     return parser

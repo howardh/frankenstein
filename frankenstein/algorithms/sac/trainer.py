@@ -7,7 +7,9 @@ import time
 from typing import Generic, TypeVar, TypedDict, Callable, overload
 
 import gymnasium
+from jaxtyping import Num
 import numpy as np
+import numpy.typing as npt
 import tabulate
 import torch
 import torch.nn
@@ -18,7 +20,7 @@ from torch.utils.data.dataloader import default_collate
 from frankenstein.buffer import HistoryBuffer
 from frankenstein.algorithms.trainer import Trainer
 from frankenstein.algorithms.utils import to_tensor, get_action_dist_function, FeedforwardModel, RecurrentModel, format_rate, recursive_zip, reset_hidden
-from frankenstein.buffer.vec_history import VecHistoryBuffer, NumpyBackedVecHistoryBuffer, SerializeFn, default_serialize_np_fn
+from frankenstein.buffer.vec_history import VecHistoryBuffer, NumpyBackedVecHistoryBuffer, SerializeFn, default_serialize_np_fn, make_default_serde
 from frankenstein.algorithms.trainer import Trainer, Checkpoint, NullCheckpoint
 from frankenstein.buffer.views import TrajectoryBatch
 
@@ -636,18 +638,99 @@ CriticModels = namedtuple('CriticModels', [
 ])
 
 
-class MiscWrapper:
-    def __init__(self, value):
-        self._value = value
+#class MiscWrapper:
+#    def __init__(self, value):
+#        self._value = value
+#
+#    def __getitem__(self, index):
+#        return {
+#            'actor_hidden':  tuple(x.index_select(0, torch.tensor([index], device=x.device)).squeeze(0) for x in self._value['actor_hidden']),
+#            'critic_hidden': CriticModels._make(
+#                tuple(x.index_select(0, torch.tensor([index], device=x.device)).squeeze(0) for x in hidden)
+#                for hidden in self._value['critic_hidden']
+#            ),
+#        }
 
-    def __getitem__(self, index):
+
+def make_serde() -> dict[str, SerializeFn]:
+    """
+    Create default serialization/deserialization functions but replace the misc serialization/deserialization with one that can handle the hidden states of the recurrent models.
+    """
+    default_serde = make_default_serde()
+    dtype = None
+    indices = None
+    def serialize_fn(misc: dict) -> npt.NDArray[np.uint8]:
+        """
+        Args:
+            misc: A dictionary containing the hidden states of the actor and critic models.
+                - 'actor_hidden': A tuple of tensors containing the hidden state of the actor model. Each tensor has shape (num_envs, *hidden_dim).
+                - 'critic_hidden': A namedtuple where each element corresponds to one of the four critic models (critic_model_1, critic_model_2, critic_model_target_1, critic_model_target_2). Each element is a tuple of tensors containing the hidden state of the corresponding critic model. Each tensor has shape (num_envs, *hidden_dim).
+        """
+        nonlocal dtype, indices
+        tensors = [
+            *misc['actor_hidden'],
+            *misc['critic_hidden'].critic_model_1,
+            *misc['critic_hidden'].critic_model_2,
+            *misc['critic_hidden'].critic_model_target_1,
+            *misc['critic_hidden'].critic_model_target_2
+        ]
+        serialized = torch.cat(tensors, dim=1)
+        if dtype is None:
+            dtype = serialized.dtype
+            # Dim 0: num_envs
+            # Dim 1,...: hidden state shape
+            indices = {
+                'actor_hidden': tuple(torch.tensor(x.shape[1:]).sum().item() for x in misc['actor_hidden']),
+                'critic_hidden': CriticModels._make(
+                    tuple(torch.tensor(x.shape[1:]).sum().item() for x in hidden)
+                    for hidden in misc['critic_hidden']
+                ),
+            }
+        return serialized.cpu().numpy().view(np.uint8)
+    def deserialize_transition_fn(data: npt.NDArray[np.uint8]) -> dict:
+        raise NotImplementedError()
+    def deserialize_trajectory_fn(data: npt.NDArray[np.uint8]) -> dict:
+        nonlocal dtype, indices
+        assert len(data.shape) == 3, 'Expected data to have shape (batch_size, trajectory_length, serialized_misc_dim)'
+        assert dtype is not None and indices is not None, 'deserialize_fn called before serialize_fn'
+        sizes = [
+            *indices['actor_hidden'],
+             *indices['critic_hidden'].critic_model_1,
+             *indices['critic_hidden'].critic_model_2,
+             *indices['critic_hidden'].critic_model_target_1,
+             *indices['critic_hidden'].critic_model_target_2,
+        ]
+        tensors = torch.from_numpy(data).view(dtype).split(sizes, dim=2)
+        tensor_iter = iter(tensors)
         return {
-            'actor_hidden':  tuple(x.index_select(0, torch.tensor([index], device=x.device)).squeeze(0) for x in self._value['actor_hidden']),
-            'critic_hidden': CriticModels._make(
-                tuple(x.index_select(0, torch.tensor([index], device=x.device)).squeeze(0) for x in hidden)
-                for hidden in self._value['critic_hidden']
+            'actor_hidden': tuple(next(tensor_iter) for _ in indices['actor_hidden']),
+            'critic_hidden': CriticModels(
+                critic_model_1 = tuple(next(tensor_iter) for _ in indices['critic_hidden'].critic_model_1),
+                critic_model_2 = tuple(next(tensor_iter) for _ in indices['critic_hidden'].critic_model_2),
+                critic_model_target_1 = tuple(next(tensor_iter) for _ in indices['critic_hidden'].critic_model_target_1),
+                critic_model_target_2 = tuple(next(tensor_iter) for _ in indices['critic_hidden'].critic_model_target_2),
             ),
         }
+    return {
+        'serialize_fn': SerializeFn(
+            obs = default_serde[0].obs,
+            action = default_serde[0].action,
+            reward = default_serde[0].reward,
+            misc = serialize_fn,
+        ),
+        'deserialize_transition_fn': SerializeFn(
+            obs = default_serde[1].obs,
+            action = default_serde[1].action,
+            reward = default_serde[1].reward,
+            misc = deserialize_transition_fn,
+        ),
+        'deserialize_trajectory_fn': SerializeFn(
+            obs = default_serde[2].obs,
+            action = default_serde[2].action,
+            reward = default_serde[2].reward,
+            misc = deserialize_trajectory_fn,
+        ),
+    }
 
 
 class RecurrentSACTrainer(SACTrainer[RecurrentModel]):
@@ -676,11 +759,17 @@ class RecurrentSACTrainer(SACTrainer[RecurrentModel]):
             max_transitions = None
 
         num_envs = self.env.num_envs
-        history = VecHistoryBuffer(
+        #history = VecHistoryBuffer(
+        #    max_len = self.config('buffer_size'),
+        #    num_envs = num_envs,
+        #    trajectory_length = self.config('trajectory_length'),
+        #    device = self.device,
+        #)
+        history = NumpyBackedVecHistoryBuffer(
             max_len = self.config('buffer_size'),
             num_envs = num_envs,
             trajectory_length = self.config('trajectory_length'),
-            device = self.device,
+            **make_serde(),
         )
 
         actor_hidden = self.actor_model.init_hidden(num_envs)
@@ -693,7 +782,8 @@ class RecurrentSACTrainer(SACTrainer[RecurrentModel]):
         critic_hidden = CriticModels._make([m.init_hidden(num_envs) for m in critic_models])
 
         obs, _ = self.env.reset()
-        history.append_obs(obs, misc=MiscWrapper({'actor_hidden': actor_hidden, 'critic_hidden': critic_hidden}))
+        #history.append_obs(obs, misc=MiscWrapper({'actor_hidden': actor_hidden, 'critic_hidden': critic_hidden}))
+        history.append_obs(obs, misc={'actor_hidden': actor_hidden, 'critic_hidden': critic_hidden})
         start_step = checkpoint.start_step // num_envs
         transition_count = checkpoint.start_step
         for step in itertools.count(start_step):
@@ -728,8 +818,8 @@ class RecurrentSACTrainer(SACTrainer[RecurrentModel]):
             history.append_action(action)
             history.append_obs(
                     obs, reward, terminated, truncated,
-                    #misc={'actor_hidden': actor_hidden},
-                    misc=MiscWrapper({'actor_hidden': actor_hidden, 'critic_hidden': critic_hidden}),
+                    #misc=MiscWrapper({'actor_hidden': actor_hidden, 'critic_hidden': critic_hidden}),
+                    misc={'actor_hidden': actor_hidden, 'critic_hidden': critic_hidden},
             )
 
             callbacks.on_transition(locals())
@@ -748,7 +838,7 @@ class RecurrentSACTrainer(SACTrainer[RecurrentModel]):
         callbacks.on_end(locals())
 
     def train_non_vec(self, max_transitions: int | None, callbacks: SACCallbacks, checkpoint: Checkpoint):
-        raise NotImplementedError()
+        #raise NotImplementedError()
 
         callbacks.on_start(locals())
 
@@ -811,9 +901,15 @@ class RecurrentSACTrainer(SACTrainer[RecurrentModel]):
 
         # Update critic
         def get_first_critic_hidden(batch_misc, key, model_name):
-            return default_collate([getattr(m[0][key],model_name) for m in batch_misc])
+            #return default_collate([getattr(m[0][key],model_name) for m in batch_misc])
+            return tuple(
+                m[:,0,:] for m in getattr(batch_misc[key], model_name)
+            )
         def get_first_actor_hidden(batch_misc):
-            return default_collate([m[0]['actor_hidden'] for m in batch_misc])
+            #return default_collate([m[0]['actor_hidden'] for m in batch_misc])
+            return tuple(
+                m[:,0,:] for m in batch_misc['actor_hidden']
+            )
         def compute_critic_output(models: RecurrentModel, obs, action, hidden):
             """
             Args:
