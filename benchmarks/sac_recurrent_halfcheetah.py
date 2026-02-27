@@ -2,6 +2,7 @@ import argparse
 import itertools
 
 import gymnasium
+from gymnasium.wrappers.vector import RecordEpisodeStatistics, TransformObservation
 import torch
 
 from frankenstein.algorithms.sac.trainer import RecurrentSACTrainer
@@ -147,7 +148,7 @@ def init_arg_parser():
     parser.add_argument('--buffer-size', type=int, default=1_000_000)
     parser.add_argument('--trajectory-length', type=int, default=128)
     parser.add_argument('--warmup-steps', type=int, default=5_000)
-    parser.add_argument('--batch-size', type=int, default=256)
+    parser.add_argument('--batch-size', type=int, default=8)
     parser.add_argument('--discount', type=float, default=0.99)
     parser.add_argument('--policy-update-interval', type=int, default=2,
                         help='Number of transitions between updates to the policy network. Note that this does not change the total number of gradient steps applied to the policy network. An update interval of N means that N policy gradient steps are taken after ever N transitions.')
@@ -156,8 +157,8 @@ def init_arg_parser():
     parser.add_argument('--entropy-coefficient', type=float, default=0.05)
 
     # Model parameters
-    parser.add_argument('--actor-hidden-size', type=int, default=256)
-    parser.add_argument('--critic-hidden-size', type=int, default=256)
+    parser.add_argument('--actor-hidden-size', type=int, default=64)
+    parser.add_argument('--critic-hidden-size', type=int, default=64)
 
     # ...
     parser.add_argument('--max-transitions', type=int, default=10_000_000)
@@ -174,11 +175,11 @@ def main(args):
     print('device', device)
 
     env = gymnasium.make_vec(
-        'Ant-v4', num_envs=2,
-        wrappers=[
-            lambda env: gymnasium.wrappers.RecordEpisodeStatistics(env),
-        ]
+        'HalfCheetah-v5', num_envs=2,
     )
+    env = RecordEpisodeStatistics(env)
+    ospace = env.single_observation_space
+    env = TransformObservation(env, lambda obs: obs[:,:8], single_observation_space=gymnasium.spaces.Box(ospace.low[:8], ospace.high[:8], (8,), ospace.dtype)) # type: ignore
     assert isinstance(env.single_observation_space, gymnasium.spaces.Box)
     assert isinstance(env.single_action_space, gymnasium.spaces.Box)
 
@@ -214,13 +215,7 @@ def main(args):
     )
     if args.checkpoint is not None:
         checkpoint = Checkpoint({
-            'actor_model': actor_model,
-            'critic_model_1': critic_model_1,
-            'critic_model_2': critic_model_2,
-            'actor_optimizer': actor_optimizer,
-            'critic_optimizer': critic_optimizer,
-            'critic_model_target_1': trainer.critic_model_target_1,
-            'critic_model_target_2': trainer.critic_model_target_2,
+            'trainer': trainer,
         }, frequency=(30, 'minutes'), path=args.checkpoint)
     else:
         checkpoint = None

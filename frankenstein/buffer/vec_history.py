@@ -751,5 +751,29 @@ class NumpyBackedVecHistoryBuffer():
     def trajectories(self):
         return self._trajectory_view
 
+    def state_dict(self):
+        return {
+            '_insert_index': self._insert_index,
+            '_incomplete_row': self._incomplete_row,
+            '_num_rows': self._num_rows,
+            'obs_history': self.obs_history,
+            'action_history': self.action_history,
+            'reward_history': self.reward_history,
+            'terminated_history': self.terminated_history,
+            'truncated_history': self.truncated_history,
+            'misc_history': self.misc_history,
+        }
+
+    def load_state_dict(self, state_dict):
+        self._insert_index = state_dict['_insert_index']
+        self._incomplete_row = state_dict['_incomplete_row']
+        self._num_rows = state_dict['_num_rows']
+        self.obs_history = state_dict['obs_history']
+        self.action_history = state_dict['action_history']
+        self.reward_history = state_dict['reward_history']
+        self.terminated_history = state_dict['terminated_history']
+        self.truncated_history = state_dict['truncated_history']
+        self.misc_history = state_dict['misc_history']
+
 
 VecHistoryBuffer = ListBackedVecHistoryBuffer

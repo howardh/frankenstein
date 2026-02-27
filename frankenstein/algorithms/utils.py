@@ -186,6 +186,12 @@ class RecurrentModel(Model):
     def __init__(self):
         super().__init__()
 
+    def forward_sequence(self, *inputs, hidden):
+        raise NotImplementedError()
+
+    def forward_step(self, *inputs, hidden):
+        raise NotImplementedError()
+
     def init_hidden(self, batch_size):
         raise NotImplementedError()
 

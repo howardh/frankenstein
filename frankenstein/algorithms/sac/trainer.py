@@ -7,20 +7,17 @@ import time
 from typing import Generic, TypeVar, TypedDict, Callable, overload
 
 import gymnasium
-from jaxtyping import Num
 import numpy as np
 import numpy.typing as npt
 import tabulate
 import torch
 import torch.nn
 import torch.nn.utils
-from tensordict import TensorDict
-from torch.utils.data.dataloader import default_collate
 
 from frankenstein.buffer import HistoryBuffer
 from frankenstein.algorithms.trainer import Trainer
 from frankenstein.algorithms.utils import to_tensor, get_action_dist_function, FeedforwardModel, RecurrentModel, format_rate, recursive_zip, reset_hidden
-from frankenstein.buffer.vec_history import VecHistoryBuffer, NumpyBackedVecHistoryBuffer, SerializeFn, default_serialize_np_fn, make_default_serde
+from frankenstein.buffer.vec_history import VecHistoryBuffer, NumpyBackedVecHistoryBuffer, SerializeFn, make_default_serde
 from frankenstein.algorithms.trainer import Trainer, Checkpoint, NullCheckpoint
 from frankenstein.buffer.views import TrajectoryBatch
 
@@ -111,10 +108,9 @@ class VerboseLoggingCallbacks(SACCallbacks):
 
         # Check for RecordEpisodeStatistics wrapper
         info = l['info']
-        if 'episode' in info:
-            r_idx = info['episode']['_r']
-            r = info['episode']['r'][r_idx]
-            self._episode_true_reward.extend(r.tolist())
+        if 'episode' in info and '_episode' in info:
+            if info['_episode'].any():
+                self._episode_true_reward.extend(info['episode']['r'][info['_episode']].tolist())
 
     def on_step_start(self, l):
         if self._num_completed_episodes == 0:
@@ -255,10 +251,9 @@ class WandbLoggingCallbacks(SACCallbacks):
         self._ep_length[done] = 0
 
         info = l['info']
-        if 'episode' in info:
-            r_idx = info['episode']['_r']
-            r = info['episode']['r'][r_idx]
-            self._data['true reward'] = np.mean(r)
+        if 'episode' in info and '_episode' in info:
+            if info['_episode'].any():
+                self._data['true reward'] = np.mean(info['episode']['r'][info['_episode']].tolist())
 
 
 class ComposeCallbacks(SACCallbacks):
@@ -769,8 +764,9 @@ class RecurrentSACTrainer(SACTrainer[RecurrentModel]):
             max_len = self.config('buffer_size'),
             num_envs = num_envs,
             trajectory_length = self.config('trajectory_length'),
-            **make_serde(),
+            **make_serde(), # type: ignore
         )
+        self.history = history
 
         actor_hidden = self.actor_model.init_hidden(num_envs)
         critic_models = CriticModels(
@@ -838,7 +834,7 @@ class RecurrentSACTrainer(SACTrainer[RecurrentModel]):
         callbacks.on_end(locals())
 
     def train_non_vec(self, max_transitions: int | None, callbacks: SACCallbacks, checkpoint: Checkpoint):
-        #raise NotImplementedError()
+        raise NotImplementedError()
 
         callbacks.on_start(locals())
 
@@ -890,27 +886,27 @@ class RecurrentSACTrainer(SACTrainer[RecurrentModel]):
 
         callbacks.on_end(locals())
 
-    def _gradient_step(self, step: int, history: HistoryBuffer | VecHistoryBuffer, callbacks: SACCallbacks = DEFAULT_SAC_CALLBACKS):
+    def _gradient_step(self, step: int, history: HistoryBuffer | VecHistoryBuffer | NumpyBackedVecHistoryBuffer, callbacks: SACCallbacks = DEFAULT_SAC_CALLBACKS):
         # Sample a random batch
         batch = history.trajectories.sample_batch(self.config('batch_size'))
-        batch_obs = batch.obs.permute(1,0,2) # [trajectory_length, batch, ...]
-        batch_action = batch.action.permute(1,0,2) # [trajectory_length, batch, ...]
-        batch_next_obs = batch.next_obs.permute(1,0,2) # [trajectory_length, batch, ...]
-        batch_reward = batch.reward.permute(1,0).float() # [trajectory_length, batch]
-        batch_terminated = batch.terminated.permute(1,0) # [trajectory_length, batch]
+        batch_obs = batch.obs.permute(1,0,2).to(self.device) # [trajectory_length, batch, ...]
+        batch_action = batch.action.permute(1,0,2).to(self.device) # [trajectory_length, batch, ...]
+        batch_next_obs = batch.next_obs.permute(1,0,2).to(self.device) # [trajectory_length, batch, ...]
+        batch_reward = batch.reward.permute(1,0).float().to(self.device) # [trajectory_length, batch]
+        batch_terminated = batch.terminated.permute(1,0).to(self.device) # [trajectory_length, batch]
 
         # Update critic
         def get_first_critic_hidden(batch_misc, key, model_name):
             #return default_collate([getattr(m[0][key],model_name) for m in batch_misc])
             return tuple(
-                m[:,0,:] for m in getattr(batch_misc[key], model_name)
+                m[:,0,:].to(self.device) for m in getattr(batch_misc[key], model_name)
             )
         def get_first_actor_hidden(batch_misc):
             #return default_collate([m[0]['actor_hidden'] for m in batch_misc])
             return tuple(
-                m[:,0,:] for m in batch_misc['actor_hidden']
+                m[:,0,:].to(self.device) for m in batch_misc['actor_hidden']
             )
-        def compute_critic_output(models: RecurrentModel, obs, action, hidden):
+        def compute_critic_output(model: RecurrentModel, obs, action, hidden):
             """
             Args:
                 obs: [trajectory_length, batch, *obs_shape]
@@ -918,29 +914,37 @@ class RecurrentSACTrainer(SACTrainer[RecurrentModel]):
                 hidden: [batch, ...]
             Returns: value: [trajectory_length, batch, 1]
             """
-            outputs = []
-            for o,a in zip(obs.unbind(0), action.unbind(0)): # dims: [trajectory_length, batch, ...]
-                o = to_tensor(o, self.device) # [batch, *obs_shape]
-                a = to_tensor(a, self.device) # [batch, *action_shape]
-                mo = models(o,a,hidden)
-                hidden = mo['hidden']
-                outputs.append(mo['value'].squeeze(1)) # [batch, 1] -> [batch]
-            return torch.stack([o for o in outputs], dim=0)
+            #outputs = []
+            #for o,a in zip(obs.unbind(0), action.unbind(0)): # dims: [trajectory_length, batch, ...]
+            #    o = to_tensor(o, self.device) # [batch, *obs_shape]
+            #    a = to_tensor(a, self.device) # [batch, *action_shape]
+            #    mo = model(o,a,hidden)
+            #    hidden = mo['hidden']
+            #    outputs.append(mo['value'].squeeze(1)) # [batch, 1] -> [batch]
+            #return torch.stack([o for o in outputs], dim=0)
+            output = model.forward_sequence(obs, action, hidden=hidden)
+            return output['value']
         def sample_actions(model: RecurrentModel, obs, hidden):
             """
             Output shape: [trajectory_length, batch, action_dim]
             """
-            actions = []
-            action_log_probs = []
-            for o in obs.unbind(0): # dims: [trajectory_length, batch, ...]
-                o = to_tensor(o, self.device)
-                mo = model(o,hidden)
-                hidden = mo['hidden']
-                action_dist, _ = self._action_dist_fn(mo)
-                action = action_dist.rsample()
-                actions.append(action)
-                action_log_probs.append(action_dist.log_prob(action).sum(dim=1, keepdims=False)) # type: ignore
-            return torch.stack(actions, dim=0), torch.stack(action_log_probs, dim=0)
+            #actions = []
+            #action_log_probs = []
+            #for o in obs.unbind(0): # dims: [trajectory_length, batch, ...]
+            #    o = to_tensor(o, self.device)
+            #    mo = model(o,hidden)
+            #    hidden = mo['hidden']
+            #    action_dist, _ = self._action_dist_fn(mo)
+            #    action = action_dist.rsample()
+            #    actions.append(action)
+            #    action_log_probs.append(action_dist.log_prob(action).sum(dim=1, keepdims=False)) # type: ignore
+            #return torch.stack(actions, dim=0), torch.stack(action_log_probs, dim=0)
+            output = model.forward_sequence(obs, hidden=hidden)
+            action_dist, _ = self._action_dist_fn(output)
+            action = action_dist.rsample()
+            action_log_prob = action_dist.log_prob(action)
+            action_log_prob = action_log_prob.sum(dim=2, keepdims=False) # type: ignore
+            return action, action_log_prob
         y_pred_1 = compute_critic_output(
                 self.critic_model_1, batch_obs, batch_action,
                 get_first_critic_hidden(batch.misc, 'critic_hidden', 'critic_model_1')
@@ -1010,3 +1014,25 @@ class RecurrentSACTrainer(SACTrainer[RecurrentModel]):
 
         # Callbacks
         callbacks.on_gradients_end(locals())
+
+    def state_dict(self):
+        return {
+            'actor_model': self.actor_model.state_dict(),
+            'critic_model_1': self.critic_model_1.state_dict(),
+            'critic_model_2': self.critic_model_2.state_dict(),
+            'actor_optimizer': self.actor_optimizer.state_dict(),
+            'critic_optimizer': self.critic_optimizer.state_dict(),
+            'critic_model_target_1': self.critic_model_target_1.state_dict(),
+            'critic_model_target_2': self.critic_model_target_2.state_dict(),
+            'buffer': self.history.state_dict(),
+        }
+
+    def load_state_dict(self, state_dict):
+        self.actor_model.load_state_dict(state_dict['actor_model'])
+        self.critic_model_1.load_state_dict(state_dict['critic_model_1'])
+        self.critic_model_2.load_state_dict(state_dict['critic_model_2'])
+        self.actor_optimizer.load_state_dict(state_dict['actor_optimizer'])
+        self.critic_optimizer.load_state_dict(state_dict['critic_optimizer'])
+        self.critic_model_target_1.load_state_dict(state_dict['critic_model_target_1'])
+        self.critic_model_target_2.load_state_dict(state_dict['critic_model_target_2'])
+        self.history.load_state_dict(state_dict['buffer'])
