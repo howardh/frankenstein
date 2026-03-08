@@ -695,8 +695,12 @@ def make_serde() -> dict[str, SerializeFn]:
              *indices['critic_hidden'].critic_model_target_1,
              *indices['critic_hidden'].critic_model_target_2,
         ]
-        tensors = torch.from_numpy(data).view(dtype).split(sizes, dim=2)
-        tensor_iter = iter(tensors)
+        t = torch.from_numpy(data)
+        if t.numel() == 0:
+            tensors = torch.empty(data.shape, dtype=dtype)
+        else:
+            tensors = t.view(dtype)
+        tensor_iter = iter(tensors.split(sizes, dim=2))
         return {
             'actor_hidden': tuple(next(tensor_iter) for _ in indices['actor_hidden']),
             'critic_hidden': CriticModels(

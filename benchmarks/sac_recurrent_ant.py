@@ -2,6 +2,7 @@ import argparse
 import itertools
 
 import gymnasium
+from gymnasium.wrappers.vector import RecordEpisodeStatistics, TransformObservation
 import torch
 
 from frankenstein.algorithms.sac.trainer import RecurrentSACTrainer
@@ -160,7 +161,7 @@ def init_arg_parser():
     parser.add_argument('--critic-hidden-size', type=int, default=256)
 
     # ...
-    parser.add_argument('--max-transitions', type=int, default=10_000_000)
+    parser.add_argument('--max-transitions', type=int, default=None)
     parser.add_argument('--checkpoint', type=str, default=None)
 
     return parser
@@ -174,11 +175,11 @@ def main(args):
     print('device', device)
 
     env = gymnasium.make_vec(
-        'Ant-v4', num_envs=2,
-        wrappers=[
-            lambda env: gymnasium.wrappers.RecordEpisodeStatistics(env),
-        ]
+        'Ant-v5', num_envs=2,
     )
+    env = RecordEpisodeStatistics(env)
+    ospace = env.single_observation_space
+    env = TransformObservation(env, lambda obs: obs[:,:13], single_observation_space=gymnasium.spaces.Box(ospace.low[:13], ospace.high[:13], (13,), ospace.dtype)) # type: ignore
     assert isinstance(env.single_observation_space, gymnasium.spaces.Box)
     assert isinstance(env.single_action_space, gymnasium.spaces.Box)
 

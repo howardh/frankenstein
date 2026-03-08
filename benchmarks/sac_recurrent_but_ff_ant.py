@@ -41,6 +41,8 @@ class ActorModel(RecurrentModel):
             'action_logstd': logstd,
             'hidden': hidden,
         }
+    def forward_sequence(self, *inputs, hidden):
+        return self.forward(*inputs, hidden)
     def init_hidden(self, batch_size):
         device = next(self.parameters()).device
         return (
@@ -68,6 +70,14 @@ class CriticModel(RecurrentModel):
         x = x.float()
         return {
             'value': self.fc(x),
+            'hidden': hidden,
+        }
+    def forward_sequence(self, *inputs, hidden):
+        x, a = inputs
+        x = torch.cat([x, a], dim=2)
+        x = x.float()
+        return {
+            'value': self.fc(x).squeeze(-1),
             'hidden': hidden,
         }
     def init_hidden(self, batch_size):
