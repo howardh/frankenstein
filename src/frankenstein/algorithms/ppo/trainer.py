@@ -703,36 +703,40 @@ class FeedforwardPPOTrainer(PPOTrainer[FeedforwardModel]):
 
 def compute_recurrent_model_output(
         history : VecHistoryBuffer,
-        model : torch.nn.Module,
+        model : RecurrentModel,
         action_dist_fn : Callable,
     ):
 
     obs = history.obs
     action = history.action
-    terminated = history.terminated
+    dones = history.terminated & history.terminated
     misc = history.misc
     assert isinstance(misc,dict)
     hidden = misc['hidden']
 
     device = next(model.parameters()).device
-    num_training_envs = len(terminated[0])
+    num_training_envs = len(dones[0])
     n = len(history.obs_history)
 
-    model_output = []
     curr_hidden = tuple([h[0].detach() for h in hidden])
-    initial_hidden = model.init_hidden(num_training_envs) # type: ignore
-    for o,term in recursive_zip(obs,terminated):
-        curr_hidden = reset_hidden(
-                terminal = term,
-                hidden = curr_hidden,
-                initial_hidden = initial_hidden,
-                batch_dim = model.hidden_batch_dims,
-        )
-        o = to_tensor(o, device)
-        mo = model(o,curr_hidden)
-        curr_hidden = mo['hidden']
-        model_output.append(mo)
-    model_output = default_collate(model_output)
+    if dones.any():
+        model_output = []
+        initial_hidden = model.init_hidden(num_training_envs) # type: ignore
+        for o,d in recursive_zip(obs,dones):
+            curr_hidden = reset_hidden(
+                    terminal = d,
+                    hidden = curr_hidden,
+                    initial_hidden = initial_hidden,
+                    batch_dim = model.hidden_batch_dims,
+            )
+            o = to_tensor(o, device)
+            mo = model(o,curr_hidden)
+            curr_hidden = mo['hidden']
+            model_output.append(mo)
+        model_output = default_collate(model_output)
+    else:
+        model_output = model.forward_sequence(to_tensor(obs, device), hidden=curr_hidden)
+        curr_hidden = model_output['hidden']
 
     assert 'value' in model_output
     state_values = model_output['value'].squeeze()

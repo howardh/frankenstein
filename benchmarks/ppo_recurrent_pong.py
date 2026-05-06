@@ -30,12 +30,35 @@ class Model(RecurrentModel):
         self.fc_value = torch.nn.Linear(HIDDEN_SIZE, 1)
     def forward(self, *inputs):
         x, hidden = inputs
+        # [batch, height, width, channels] -> [batch, channels, height, width]
         x = x.permute(0, 3, 1, 2).float() / 255
         x = self.conv(x)
         h, c = self.lstm(x, hidden)
         return {
             'action': self.fc_policy(h),
             'value': self.fc_value(h),
+            'hidden': (h, c),
+        }
+    def forward_sequence(self, *inputs, hidden):
+        x, = inputs
+        seq_len, batch_size, *_ = x.shape
+        # [seq_len, batch, height, width, channels] -> [seq_len * batch, channels, height, width]
+        x = x.view(seq_len * batch_size, *x.shape[2:])
+
+        x = x.permute(0, 3, 1, 2).float() / 255
+        x = self.conv(x)
+        x = x.view(seq_len, batch_size, -1)
+
+        h, c = hidden
+        lstm_output = torch.empty(seq_len, batch_size, HIDDEN_SIZE, device=x.device)
+        for t in range(seq_len):
+            h, c = self.lstm(x[t], (h, c))
+            lstm_output[t] = h
+        x = lstm_output
+
+        return {
+            'action': self.fc_policy(x),
+            'value': self.fc_value(x),
             'hidden': (h, c),
         }
     def init_hidden(self, batch_size):
