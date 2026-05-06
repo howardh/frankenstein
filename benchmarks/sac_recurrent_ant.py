@@ -1,5 +1,6 @@
 import argparse
 import itertools
+import logging
 
 import gymnasium
 from gymnasium.wrappers.vector import RecordEpisodeStatistics, TransformObservation
@@ -9,6 +10,9 @@ from frankenstein.algorithms.sac.trainer import RecurrentSACTrainer
 from frankenstein.algorithms.utils import RecurrentModel
 from frankenstein.algorithms.trainer import Checkpoint
 
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG)
 
 LOGSTD_MIN = -5
 LOGSTD_MAX = 2
@@ -172,7 +176,7 @@ def main(args):
         device = torch.device('cuda')
     else:
         device = torch.device('cpu')
-    print('device', device)
+    logger.info(f'device: {device}')
 
     env = gymnasium.make_vec(
         'Ant-v5', num_envs=2,

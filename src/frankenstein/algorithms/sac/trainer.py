@@ -2,6 +2,7 @@ from collections import OrderedDict, defaultdict, namedtuple
 import copy
 import datetime
 import itertools
+import logging
 import os
 import time
 from typing import Generic, TypeVar, TypedDict, Callable, overload
@@ -20,6 +21,9 @@ from frankenstein.algorithms.utils import to_tensor, get_action_dist_function, F
 from frankenstein.buffer.vec_history import VecHistoryBuffer, NumpyBackedVecHistoryBuffer, SerializeFn, make_default_serde
 from frankenstein.algorithms.trainer import Trainer, Checkpoint, NullCheckpoint
 from frankenstein.buffer.views import TrajectoryBatch
+
+
+logger = logging.getLogger(__name__)
 
 
 ##################################################
@@ -72,6 +76,8 @@ class SACCallbacks():
 
 class VerboseLoggingCallbacks(SACCallbacks):
     def __init__(self):
+        logger.debug('Initializing VerboseLoggingCallbacks')
+
         self._episode_reward = []
         self._episode_true_reward = []
         self._episode_steps = []
@@ -168,14 +174,16 @@ class WandbLoggingCallbacks(SACCallbacks):
     def __init__(self, project='rl', **kwargs):
         super().__init__()
         try:
+            logger.debug('Initializing WandbLoggingCallbacks')
             import wandb # type: ignore
             self._run = wandb.init(
                 project=project,
                 **kwargs,
             )
+            logger.debug(f'Initialized Wandb run with id {self._run.id}')
         except:
             self._run = None
-            pass
+            logger.debug('Failed to initialize Wandb run. Wandb logging will be disabled.')
 
         self._transition_count = 0
         self._state_values = []
@@ -196,7 +204,8 @@ class WandbLoggingCallbacks(SACCallbacks):
 
         self._mujoco_reward_components = defaultdict(lambda: np.zeros(num_envs))
 
-        # TODO: Update config
+        # Update config
+        self._run.config.update(l['self']._config, allow_val_change=True)
 
     def on_transition(self, l):
         if self._run is None:

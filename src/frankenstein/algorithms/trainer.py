@@ -1,8 +1,12 @@
 import os
 import datetime
 import time
+import logging
 
 import torch
+
+
+logger = logging.getLogger(__name__)
 
 
 class Trainer:
@@ -66,7 +70,7 @@ class Checkpoint:
 
     def save(self, step: int, force: bool = False):
         """
-        Save the checkpoint to disk.
+        Save the checkpoint to disk if the specified amount of time or steps has passed since the last checkpoint.
 
         Args:
             step (int): The current step.
@@ -91,20 +95,20 @@ class Checkpoint:
             os.makedirs(directory)
         torch.save(checkpoint, temp_filename)
         os.rename(temp_filename, filename)
-        print(f"Saved checkpoint to {os.path.abspath(filename)}")
+        logger.info(f"Saved checkpoint to {os.path.abspath(filename)}")
 
         self._last_checkpoint_step = step
         self._last_checkpoint_time = time.time()
-        print(f"  Step: {step}")
-        print(f"  Time: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.debug(f"Checkpoint Step: {step}")
+        logger.debug(f"Checkpoint Time: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     def load(self):
         file_path = os.path.join(self.path, "checkpoint.pt")
         if not os.path.exists(file_path):
-            print(f"No checkpoint found at {os.path.abspath(file_path)}")
+            logger.info(f"No checkpoint found at {os.path.abspath(file_path)}")
             self._last_checkpoint_time = time.time()
             return
-        print(f"Loading checkpoint from {os.path.abspath(file_path)}")
+        logger.info(f"Loading checkpoint from {os.path.abspath(file_path)}")
         checkpoint = torch.load(file_path)
 
         # Validation
