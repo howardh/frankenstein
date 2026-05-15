@@ -5,7 +5,8 @@ from jaxtyping import Float, Bool
 def n_step_return_iterative(
     next_state_values: Float[torch.Tensor, 'num_steps'],
     rewards: Float[torch.Tensor, 'num_steps'],
-    terminals: Bool[torch.Tensor, 'num_steps'],
+    terminated: Bool[torch.Tensor, 'num_steps'],
+    truncated: Bool[torch.Tensor, 'num_steps'],
     discount: float,
     n: int,
 ) -> Float[torch.Tensor, 'num_steps']:
@@ -20,12 +21,15 @@ def n_step_return_iterative(
     Args:
         next_state_values: A tensor containing $[V(s_1),V_(s_2),...,V(s_m)]$ where $V(s)$ is the estimated value of state $s$.
         rewards: A tensor containing $[r_1,r_2,...,r_m]$.
-        terminals: A boolean tensor containing $[T(s_1),T(s_2),...,T(s_m)]$ where $T(s)$ is True if $s$ is a terminal state, and False otherwise.
+        terminated: A boolean tensor containing $[T(s_1),T(s_2),...,T(s_m)]$ where $T(s)$ is True if $s$ is a terminal state, and False otherwise.
+        truncated: A boolean tensor containing $[Tr(s_1),Tr(s_2),...,Tr(s_m)]$ where $Tr(s)$ is True if the episode was truncated at state $s$, and False otherwise.
         discounts: A tensor $[\\gamma_1,\\gamma_2,...,\\gamma_m]$ where the 1-step value estimate of $s_0$ is $r_1+\\gamma_1 V(s_1)$.
 
     Returns:
         A tensor $[G_{0:n}, G_{1:1+n}, \\cdots, G_{m-n:m}]$ (Using the notation from Sutton&Barto Intro to RL) where
         $$G_{i:i+n} = \\left[\\sum_{j=1}^n \\gamma^{j-1} r_{i+j}\\right] + V(s_{i+n})$$
+
+        For an input of length $m$, the output is of length $m-n+1$. If $n>m$, then the output is of length 0.
     """
     assert n >= 1
 
@@ -34,11 +38,16 @@ def n_step_return_iterative(
     output = torch.zeros([num_steps-n+1], device=device)
     for i in range(num_steps-n+1):
         ret = 0.
+        bootstrap_value = 0
         for j in range(i, i+n):
             ret += (discount**(j-i))*rewards[j]
-            if terminals[j]:
+            if terminated[j]:
+                break
+            if truncated[j]:
+                bootstrap_value = (discount ** (j-i+1)) * next_state_values[j]
                 break
         else:  # If we finish the loop and didn't break out
-            ret += (discount**n)*next_state_values[i+n-1]
+             bootstrap_value = (discount**n) * next_state_values[i+n-1]
+        ret += bootstrap_value
         output[i] = ret
     return output

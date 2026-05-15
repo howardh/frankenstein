@@ -8,7 +8,7 @@ def test_0_steps():
     output = loss(
             old_log_action_probs = torch.tensor([], dtype=torch.float),
             log_action_probs = torch.tensor([], dtype=torch.float),
-            terminals = torch.tensor([], dtype=torch.float),
+            terminated = torch.tensor([], dtype=torch.float),
             advantages = torch.tensor([], dtype=torch.float),
             epsilon=0.1,
     )
@@ -24,14 +24,14 @@ def test_1_steps_matches_advantage_pg():
     output = loss(
             log_action_probs = action_probs,
             old_log_action_probs = action_probs.detach(),
-            terminals = torch.tensor([False], dtype=torch.float),
+            terminated = torch.tensor([False], dtype=torch.float),
             advantages=advantages,
             epsilon=1000, # Large number, so the ratio won't be clipped
     )
     action_probs_adv = torch.tensor([-1], dtype=torch.float, requires_grad=True)
     output_adv = loss_adv(
             log_action_probs = action_probs_adv,
-            terminals = torch.tensor([False], dtype=torch.float),
+            terminated = torch.tensor([False], dtype=torch.float),
             advantages = advantages,
     )
     assert torch.tensor(output.shape).tolist() == [1]
@@ -46,14 +46,14 @@ def test_3_steps_matches_advantage_pg():
     output = loss(
             log_action_probs = action_probs,
             old_log_action_probs = action_probs.detach(),
-            terminals = torch.tensor([False, False, False], dtype=torch.float),
+            terminated = torch.tensor([False, False, False], dtype=torch.float),
             advantages=advantages,
             epsilon=1000, # Large number, so the ratio won't be clipped
     )
     action_probs_adv = torch.tensor([-1, -2, -3], dtype=torch.float, requires_grad=True)
     output_adv = loss_adv(
             log_action_probs = action_probs_adv,
-            terminals = torch.tensor([False, False, False], dtype=torch.float),
+            terminated = torch.tensor([False, False, False], dtype=torch.float),
             advantages = advantages,
     )
     assert torch.tensor(output.shape).tolist() == [3]

@@ -7,7 +7,7 @@ from frankenstein.advantage.gae import generalized_advantage_estimate as gae
 def test_0_steps():
     output = loss(
             log_action_probs = torch.tensor([], dtype=torch.float),
-            terminals = torch.tensor([], dtype=torch.float),
+            terminated = torch.tensor([], dtype=torch.float),
             advantages = torch.tensor([], dtype=torch.float),
     )
     assert torch.tensor(output.shape).tolist() == [0]
@@ -15,7 +15,7 @@ def test_0_steps():
 def test_1_steps():
     output = loss(
             log_action_probs = torch.tensor([-1], dtype=torch.float),
-            terminals = torch.tensor([False], dtype=torch.float),
+            terminated = torch.tensor([False], dtype=torch.float),
             advantages = torch.tensor([0.9], dtype=torch.float),
     )
     assert torch.tensor(output.shape).tolist() == [1]
@@ -24,7 +24,7 @@ def test_1_steps():
 def test_3_steps():
     output = loss(
             log_action_probs = torch.tensor([-1,-2,-3], dtype=torch.float),
-            terminals = torch.tensor([False,False,False], dtype=torch.float),
+            terminated = torch.tensor([False,False,False], dtype=torch.float),
             advantages = torch.tensor([0.9,0.9,0.9], dtype=torch.float),
     )
     assert torch.tensor(output.shape).tolist() == [3]
@@ -47,13 +47,14 @@ def test_training():
                 state_values = state_value,
                 next_state_values = state_value,
                 rewards = action.unsqueeze(0),
-                terminals = torch.tensor([False]),
+                terminated = torch.tensor([False]),
+                truncated = torch.tensor([False]),
                 discount = 0.9,
                 gae_lambda=0.95,
         )
         l = loss(
                 log_action_probs = probs[action],
-                terminals = torch.tensor([False]),
+                terminated = torch.tensor([False]),
                 advantages = advantages,
         )
         optimizer.zero_grad()

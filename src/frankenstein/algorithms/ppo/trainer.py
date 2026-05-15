@@ -321,6 +321,7 @@ def compute_loss_intermediates(
     """
     reward = history.reward
     terminated = history.terminated
+    truncated = history.truncated
     n = len(history.obs_history)
 
     with torch.no_grad():
@@ -337,7 +338,8 @@ def compute_loss_intermediates(
                 state_values = state_values[:n-1,:],
                 next_state_values = state_values[1:,:],
                 rewards = reward[1:,:],
-                terminals = terminated[1:,:],
+                terminated = terminated[1:,:],
+                truncated = truncated[1:,:],
                 discount = discount,
                 gae_lambda = gae_lambda,
         )
@@ -395,8 +397,8 @@ def compute_ppo_losses(
             log_action_probs = log_action_probs,
             old_log_action_probs = log_action_probs_old,
             advantages = advantages,
-            terminals = terminated[:n-1],
-            epsilon=clip_pg_ratio,
+            terminated = terminated[:n-1],
+            epsilon = clip_pg_ratio,
     )
 
     # Value loss

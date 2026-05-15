@@ -292,6 +292,13 @@ class ListBackedVecHistoryBuffer():
         return output
 
     @property
+    def truncated(self) -> Bool[torch.Tensor, 'seq_len num_envs']:
+        output = torch.stack([
+            torch.tensor(x, device=self.device) for x in self.truncated_history
+        ], dim=0)
+        return output
+
+    @property
     def action(self) -> Real[torch.Tensor, 'seq_len num_envs action_shape']:
         if len(self.action_history) == 0:
             return torch.zeros(0, self._num_envs, 0, device=self.device)

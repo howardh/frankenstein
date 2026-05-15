@@ -6,7 +6,8 @@ def generalized_advantage_estimate(
         state_values: Float[torch.Tensor, 'num_steps batch_size'],
         next_state_values: Float[torch.Tensor, 'num_steps batch_size'],
         rewards: Float[torch.Tensor, 'num_steps batch_size'],
-        terminals: Bool[torch.Tensor, 'num_steps batch_size'],
+        terminated: Bool[torch.Tensor, 'num_steps batch_size'],
+        truncated: Bool[torch.Tensor, 'num_steps batch_size'],
         discount: float,
         gae_lambda: float,
 ) -> Float[torch.Tensor, 'batch_size num_steps']:
@@ -23,7 +24,8 @@ def generalized_advantage_estimate(
         state_values: A tensor containing $[V(s_0),V_(s_1),...,V(s_{n-1})]$ where $V(s)$ is the estimated value of state $s$.
         next_state_values: A tensor containing $[V(s_1),V_(s_2),...,V(s_n)]$ where $V(s)$ is the estimated value of state $s$.
         rewards: A tensor containing $[r_1,r_2,...,r_n]$.
-        terminals: A boolean tensor containing $[T(s_1),T(s_2),...,T(s_n)]$ where $T(s)$ is True if $s$ is a terminal state, and False otherwise.
+        terminated: A boolean tensor containing $[T(s_1),T(s_2),...,T(s_n)]$ where $T(s)$ is True if $s$ is a terminal state, and False otherwise.
+        truncated: A boolean tensor containing $[Tr(s_1),Tr(s_2),...,Tr(s_m)]$ where $Tr(s)$ is True if the episode was truncated at state $s$, and False otherwise.
         discount: Discount factor.
         gae_lambda: ...
 
@@ -35,7 +37,8 @@ def generalized_advantage_estimate(
     if num_steps == 0:
         return torch.empty_like(next_state_values, dtype=torch.float, device=device)
     adv = torch.zeros([num_steps+1, *state_values.shape[1:]], device=device)
-    delta = rewards+discount*next_state_values*terminals.logical_not()-state_values
+    delta = rewards+discount*next_state_values*terminated.logical_not()-state_values
+    done = terminated.logical_or(truncated)
     for i in reversed(range(num_steps)):
-        adv[i] = delta[i]+terminals[i].logical_not()*gae_lambda*discount*adv[i+1]
+        adv[i] = delta[i]+done[i].logical_not()*gae_lambda*discount*adv[i+1]
     return adv[:-1]

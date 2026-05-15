@@ -17,7 +17,8 @@ def test_0_steps():
         state_values=torch.tensor([], dtype=torch.float),
         next_state_values=torch.tensor([], dtype=torch.float),
         rewards=torch.tensor([], dtype=torch.float),
-        terminals=torch.tensor([], dtype=torch.float),
+        truncated=torch.tensor([], dtype=torch.float),
+        terminated=torch.tensor([], dtype=torch.float),
         discount=0.9,
         gae_lambda=0,
     )
@@ -29,7 +30,8 @@ def test_1_steps():
         state_values=torch.tensor([5], dtype=torch.float),
         next_state_values=torch.tensor([6], dtype=torch.float),
         rewards=torch.tensor([1], dtype=torch.float),
-        terminals=torch.tensor([False], dtype=torch.float),
+        truncated=torch.tensor([False], dtype=torch.float),
+        terminated=torch.tensor([False], dtype=torch.float),
         discount=0.9,
         gae_lambda=0,
     )
@@ -42,7 +44,8 @@ def test_3_steps():
         state_values=torch.tensor([5, 6, 7], dtype=torch.float),
         next_state_values=torch.tensor([6, 7, 8], dtype=torch.float),
         rewards=torch.tensor([1, 2, 3], dtype=torch.float),
-        terminals=torch.tensor([False, False, False], dtype=torch.float),
+        truncated=torch.tensor([False, False, False], dtype=torch.float),
+        terminated=torch.tensor([False, False, False], dtype=torch.float),
         discount=0.9,
         gae_lambda=0,
     )
@@ -61,7 +64,8 @@ def test_termination_at_start():
         state_values=torch.tensor([5, 6, 7], dtype=torch.float),
         next_state_values=torch.tensor([6, 7, 8], dtype=torch.float),
         rewards=torch.tensor([1, 2, 3], dtype=torch.float),
-        terminals=torch.tensor([True, False, False], dtype=torch.float),
+        truncated=torch.tensor([True, False, False], dtype=torch.float),
+        terminated=torch.tensor([True, False, False], dtype=torch.float),
         discount=0.9,
         gae_lambda=0,
     )
@@ -76,7 +80,8 @@ def test_termination_at_end():
         state_values=torch.tensor([5, 6, 7], dtype=torch.float),
         next_state_values=torch.tensor([6, 7, 8], dtype=torch.float),
         rewards=torch.tensor([1, 2, 3], dtype=torch.float),
-        terminals=torch.tensor([False, False, True], dtype=torch.float),
+        truncated=torch.tensor([False, False, True], dtype=torch.float),
+        terminated=torch.tensor([False, False, True], dtype=torch.float),
         discount=0.9,
         gae_lambda=0,
     )
@@ -91,7 +96,8 @@ def test_termination_in_middle():
         state_values=torch.tensor([5, 6, 7], dtype=torch.float),
         next_state_values=torch.tensor([6, 7, 8], dtype=torch.float),
         rewards=torch.tensor([1, 2, 3], dtype=torch.float),
-        terminals=torch.tensor([False, True, False], dtype=torch.float),
+        truncated=torch.tensor([False, True, False], dtype=torch.float),
+        terminated=torch.tensor([False, True, False], dtype=torch.float),
         discount=0.9,
         gae_lambda=0,
     )
@@ -110,7 +116,8 @@ def test_1_steps_gae_1():
         state_values=torch.tensor([5], dtype=torch.float),
         next_state_values=torch.tensor([6], dtype=torch.float),
         rewards=torch.tensor([1], dtype=torch.float),
-        terminals=torch.tensor([False], dtype=torch.float),
+        truncated=torch.tensor([False], dtype=torch.float),
+        terminated=torch.tensor([False], dtype=torch.float),
         discount=0.9,
         gae_lambda=1,
     )
@@ -123,7 +130,8 @@ def test_1_steps_terminal_gae_1():
         state_values=torch.tensor([5], dtype=torch.float),
         next_state_values=torch.tensor([6], dtype=torch.float),
         rewards=torch.tensor([1], dtype=torch.float),
-        terminals=torch.tensor([True], dtype=torch.float),
+        truncated=torch.tensor([True], dtype=torch.float),
+        terminated=torch.tensor([True], dtype=torch.float),
         discount=0.9,
         gae_lambda=1,
     )
@@ -136,7 +144,8 @@ def test_2_steps_gae_1():
         state_values=torch.tensor([5, 6], dtype=torch.float),
         next_state_values=torch.tensor([6, 7], dtype=torch.float),
         rewards=torch.tensor([1, 2], dtype=torch.float),
-        terminals=torch.tensor([False, False], dtype=torch.float),
+        truncated=torch.tensor([False, False], dtype=torch.float),
+        terminated=torch.tensor([False, False], dtype=torch.float),
         discount=0.9,
         gae_lambda=1,
     )
@@ -152,7 +161,8 @@ def test_3_steps_gae_1():
         state_values=torch.tensor([5, 6, 7], dtype=torch.float),
         next_state_values=torch.tensor([6, 7, 8], dtype=torch.float),
         rewards=torch.tensor([1, 2, 3], dtype=torch.float),
-        terminals=torch.tensor([False, False, False], dtype=torch.float),
+        truncated=torch.tensor([False, False, False], dtype=torch.float),
+        terminated=torch.tensor([False, False, False], dtype=torch.float),
         discount=0.9,
         gae_lambda=1,
     )
@@ -174,7 +184,8 @@ def test_termination_at_start_gae_1():
         state_values=torch.tensor([5, 6, 7], dtype=torch.float),
         next_state_values=torch.tensor([6, 7, 8], dtype=torch.float),
         rewards=torch.tensor([1, 2, 3], dtype=torch.float),
-        terminals=torch.tensor([True, False, False], dtype=torch.float),
+        truncated=torch.tensor([True, False, False], dtype=torch.float),
+        terminated=torch.tensor([True, False, False], dtype=torch.float),
         discount=0.9,
         gae_lambda=1,
     )
@@ -192,7 +203,8 @@ def test_termination_at_end_gae_1():
         state_values=torch.tensor([5, 6, 7], dtype=torch.float),
         next_state_values=torch.tensor([6, 7, 8], dtype=torch.float),
         rewards=torch.tensor([1, 2, 3], dtype=torch.float),
-        terminals=torch.tensor([False, False, True], dtype=torch.float),
+        truncated=torch.tensor([False, False, True], dtype=torch.float),
+        terminated=torch.tensor([False, False, True], dtype=torch.float),
         discount=0.9,
         gae_lambda=1,
     )
@@ -210,7 +222,8 @@ def test_termination_in_middle_gae_1():
         state_values=torch.tensor([5, 6, 7], dtype=torch.float),
         next_state_values=torch.tensor([6, 7, 8], dtype=torch.float),
         rewards=torch.tensor([1, 2, 3], dtype=torch.float),
-        terminals=torch.tensor([False, True, False], dtype=torch.float),
+        truncated=torch.tensor([False, True, False], dtype=torch.float),
+        terminated=torch.tensor([False, True, False], dtype=torch.float),
         discount=0.9,
         gae_lambda=1,
     )
@@ -222,6 +235,28 @@ def test_termination_in_middle_gae_1():
     d0 = 1+0.9*(2) - 5
     assert output[0].item() == approx(d0)
 
+# Truncation without termination
+# Same discount for all steps
+# gae lambda = 1
+
+def test_truncation_without_termination_gae():
+    output = gae(
+        state_values=torch.tensor([5, 6, 7], dtype=torch.float),
+        next_state_values=torch.tensor([6, 7, 8], dtype=torch.float),
+        rewards=torch.tensor([1, 2, 3], dtype=torch.float),
+        terminated=torch.tensor([False, False, False], dtype=torch.float),
+        truncated=torch.tensor([True, False, False], dtype=torch.float),
+        discount=0.9,
+        gae_lambda=1,
+    )
+    assert torch.tensor(output.shape).tolist() == [3]
+    d2 = 3+0.9*8 - 7
+    assert output[2].item() == approx(d2)
+    d1 = 2+0.9*(3+0.9*8) - 6
+    assert output[1].item() == approx(d1)
+    d0 = 1+0.9*6 - 5
+    assert output[0].item() == approx(d0)
+
 
 # Compare to values obtained from the lambda returns
 
@@ -230,19 +265,22 @@ def test_gae_lambda_return():
     lam = 0.3
     state_values = torch.rand([num_steps+1])
     rewards = torch.rand([num_steps])
-    terminals = (torch.rand([num_steps])*3).floor().bool().logical_not()
+    terminated = (torch.rand([num_steps])*3).floor().bool().logical_not()
+    truncated = torch.zeros_like(terminated)
     output = gae(
         state_values=state_values[:-1],
         next_state_values=state_values[1:],
         rewards=rewards,
-        terminals=terminals,
+        truncated=truncated,
+        terminated=terminated,
         discount=0.9,
         gae_lambda=lam,
     )
     output_lambda_return = lambda_return(
         next_state_values=state_values[1:],
         rewards=rewards,
-        terminals=terminals,
+        terminated=terminated,
+        truncated=truncated,
         discount=0.9,
         lam=lam,
     )
@@ -267,7 +305,8 @@ def test_batch_matches_non_batched():
         state_values=state_values,
         next_state_values=next_state_values,
         rewards=rewards,
-        terminals=terminals,
+        truncated=terminals,
+        terminated=terminals,
         discount=discount,
         gae_lambda=gae_lambda,
     )
@@ -276,7 +315,8 @@ def test_batch_matches_non_batched():
             state_values=state_values[:, i],
             next_state_values=next_state_values[:, i],
             rewards=rewards[:, i],
-            terminals=terminals[:, i],
+            truncated=terminals[:, i],
+            terminated=terminals[:, i],
             discount=discount,
             gae_lambda=gae_lambda,
         )
@@ -298,7 +338,8 @@ def test_batch_matches_non_batched_3_dims():
         state_values=state_values,
         next_state_values=next_state_values,
         rewards=rewards,
-        terminals=terminals,
+        truncated=terminals,
+        terminated=terminals,
         discount=discount,
         gae_lambda=gae_lambda,
     )
@@ -309,7 +350,8 @@ def test_batch_matches_non_batched_3_dims():
                     state_values=state_values[:, i, j, k],
                     next_state_values=next_state_values[:, i, j, k],
                     rewards=rewards[:, i, j, k],
-                    terminals=terminals[:, i, j, k],
+                    truncated=terminals[:, i, j, k],
+                    terminated=terminals[:, i, j, k],
                     discount=discount,
                     gae_lambda=gae_lambda,
                 )
