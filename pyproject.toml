@@ -28,6 +28,7 @@ dev = [
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
     "pytest-timeout>=2.4.0",
+    "ruff>=0.15.13",
 ]
 
 [tool.uv.workspace]
@@ -37,3 +38,9 @@ members = [
 
 [tool.uv.sources]
 frankenstein = { workspace = true, editable = true }
+
+[tool.ruff.lint]
+ignore = [
+  "F722", # For jaxtyping annotations (See https://docs.kidger.site/jaxtyping/faq/#flake8-or-ruff-are-throwing-an-error)
+  "E741", # For using "l", "O", and "I" as variable names.
+]

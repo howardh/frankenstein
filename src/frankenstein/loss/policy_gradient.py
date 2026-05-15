@@ -3,10 +3,10 @@ from jaxtyping import Float, Bool
 
 
 def advantage_policy_gradient_loss(
-    log_action_probs: Float[torch.Tensor, 'num_steps'],
-    terminated: Bool[torch.Tensor, 'num_steps'],
-    advantages: Float[torch.Tensor, 'num_steps'],
-) -> Float[torch.Tensor, 'num_steps']:
+    log_action_probs: Float[torch.Tensor, ' num_steps'],
+    terminated: Bool[torch.Tensor, ' num_steps'],
+    advantages: Float[torch.Tensor, ' num_steps'],
+) -> Float[torch.Tensor, ' num_steps']:
     """
     Advantage policy gradient.
 
@@ -23,12 +23,12 @@ def advantage_policy_gradient_loss(
 
 
 def clipped_advantage_policy_gradient_loss(
-    log_action_probs: Float[torch.Tensor, 'batch_size'],
-    old_log_action_probs: Float[torch.Tensor, 'batch_size'],
-    terminated: Bool[torch.Tensor, 'num_steps'],
-    advantages: Float[torch.Tensor, 'batch_size'],
+    log_action_probs: Float[torch.Tensor, ' batch_size'],
+    old_log_action_probs: Float[torch.Tensor, ' batch_size'],
+    terminated: Bool[torch.Tensor, ' num_steps'],
+    advantages: Float[torch.Tensor, ' batch_size'],
     epsilon: float,
-) -> Float[torch.Tensor, 'batch_size']:
+) -> Float[torch.Tensor, ' batch_size']:
     """
     Clipped advantage policy gradient.
 
@@ -49,12 +49,12 @@ def clipped_advantage_policy_gradient_loss(
 
 
 def offpolicy_advantage_policy_gradient_loss(
-    log_action_probs: Float[torch.Tensor, 'batch_size'],
-    old_log_action_probs: Float[torch.Tensor, 'batch_size'],
-    terminated: Bool[torch.Tensor, 'num_steps'],
-    advantages: Float[torch.Tensor, 'batch_size'],
+    log_action_probs: Float[torch.Tensor, ' batch_size'],
+    old_log_action_probs: Float[torch.Tensor, ' batch_size'],
+    terminated: Bool[torch.Tensor, ' num_steps'],
+    advantages: Float[torch.Tensor, ' batch_size'],
     max_ratio: float,
-) -> Float[torch.Tensor, 'batch_size']:
+) -> Float[torch.Tensor, ' batch_size']:
     """
     Clipped advantage policy gradient.
 

@@ -1,5 +1,4 @@
 import numpy as np
-import numpy.typing as npt
 import torch
 from torch.utils.data.dataloader import default_collate
 from tensordict import TensorDict

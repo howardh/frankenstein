@@ -88,7 +88,7 @@ class Checkpoint:
         # Save it to a temporary file first, then rename it to the final file name so that we don't end up with a corrupted file if the process is interrupted.
         checkpoint = {key: value.state_dict() for key, value in self.data.items()}
         checkpoint["step"] = step
-        filename = os.path.join(self.path, f"checkpoint.pt")
+        filename = os.path.join(self.path, "checkpoint.pt")
         temp_filename = filename + ".temp"
         directory = os.path.dirname(filename)
         if not os.path.exists(directory):

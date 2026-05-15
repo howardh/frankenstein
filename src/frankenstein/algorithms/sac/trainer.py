@@ -16,7 +16,6 @@ import torch.nn
 import torch.nn.utils
 
 from frankenstein.buffer import HistoryBuffer
-from frankenstein.algorithms.trainer import Trainer
 from frankenstein.algorithms.utils import to_tensor, get_action_dist_function, FeedforwardModel, RecurrentModel, format_rate, recursive_zip, reset_hidden
 from frankenstein.buffer.vec_history import VecHistoryBuffer, NumpyBackedVecHistoryBuffer, SerializeFn, make_default_serde
 from frankenstein.algorithms.trainer import Trainer, Checkpoint, NullCheckpoint
@@ -126,7 +125,7 @@ class VerboseLoggingCallbacks(SACCallbacks):
         if time_diff > self._report_interval:
             try:
                 term_width, _ = os. get_terminal_size()
-            except:
+            except Exception:
                 term_width = 80
             print(f'Time: {datetime.datetime.now()}')
             print(f'Completed step {l["step"]} ({format_rate(l["step"], "step", "steps", time.time() - self._start_time)})')
@@ -181,7 +180,7 @@ class WandbLoggingCallbacks(SACCallbacks):
                 **kwargs,
             )
             logger.debug(f'Initialized Wandb run with id {self._run.id}')
-        except:
+        except Exception:
             self._run = None
             logger.debug('Failed to initialize Wandb run. Wandb logging will be disabled.')
 
@@ -347,7 +346,6 @@ def compute_recurrent_model_output(actor_model: RecurrentModel, critic_models: l
         critic_models: A list of critic models in the order `critic_model_1`, `critic_model_2`, `critic_model_target_1`, `critic_model_target_2`.
     """
     obs = batch.obs
-    action = batch.action
     terminated = batch.terminated
 
     actor_hidden = batch.misc[0]['actor_hidden']
@@ -355,7 +353,6 @@ def compute_recurrent_model_output(actor_model: RecurrentModel, critic_models: l
 
     device = next(actor_model.parameters()).device
     num_training_envs = len(terminated[0])
-    n = len(batch.obs)
 
     actor_model_output = []
     actor_curr_hidden = tuple([h[0].detach() for h in actor_hidden])

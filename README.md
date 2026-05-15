@@ -1,5 +1,5 @@
 A collection of building blocks for constructing RL agents
 
-Run pdoc with `pdoc --math --docformat google frankenstein`
+Run pdoc with `uv run pdoc --no-browser --math --docformat google frankenstein`
 
-Style code with `autopep8 --ignore E501,E226,F821 --in-place --aggressive --aggressive <filename>`
+Style code with `uv run ruff check src`

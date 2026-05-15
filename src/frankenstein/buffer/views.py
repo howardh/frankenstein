@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from typing import Any, TYPE_CHECKING
 
 from jaxtyping import Float, Bool
-import numpy as np
 import torch
 from torch.utils.data.dataloader import default_collate
 from tensordict import TensorDict

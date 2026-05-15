@@ -115,7 +115,7 @@ class VerboseLoggingCallbacks(PPOCallbacks):
         if time_diff > self._report_interval:
             try:
                 term_width, _ = os. get_terminal_size()
-            except:
+            except Exception:
                 term_width = 80
             completed_transitions_total = l['transition_count'] # Total number of transitions
             completed_transitions = l['transition_count'] - l['checkpoint'].start_step # Number of transitions since the last checkpoint
@@ -178,7 +178,7 @@ class WandbLoggingCallbacks(PPOCallbacks):
                 project=project,
                 **kwargs,
             )
-        except:
+        except Exception:
             self._run = None
             print('Failed to initialize W&B.')
             pass
@@ -542,7 +542,7 @@ class FeedforwardPPOTrainer(PPOTrainer[FeedforwardModel]):
                 action = action_dist.sample().cpu().numpy()
 
             # Step environment
-            obs, reward, terminated, truncated, info = env.step(action) # type: ignore
+            obs, reward, terminated, truncated, info = self.env.step(action) # type: ignore
             done = terminated | truncated
 
             episode_reward += reward

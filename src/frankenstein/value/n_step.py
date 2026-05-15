@@ -3,13 +3,13 @@ from jaxtyping import Float, Bool
 
 
 def n_step_return_iterative(
-    next_state_values: Float[torch.Tensor, 'num_steps'],
-    rewards: Float[torch.Tensor, 'num_steps'],
-    terminated: Bool[torch.Tensor, 'num_steps'],
-    truncated: Bool[torch.Tensor, 'num_steps'],
+    next_state_values: Float[torch.Tensor, ' num_steps'],
+    rewards: Float[torch.Tensor, ' num_steps'],
+    terminated: Bool[torch.Tensor, ' num_steps'],
+    truncated: Bool[torch.Tensor, ' num_steps'],
     discount: float,
     n: int,
-) -> Float[torch.Tensor, 'num_steps']:
+) -> Float[torch.Tensor, ' num_steps']:
     """
     Return the $n$-step return of each state.
     The output is computed in an interative manner, so this is less computationally efficient, but the code may be easier to understand.

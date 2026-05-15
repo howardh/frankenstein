@@ -2,7 +2,6 @@ from typing import Callable, Mapping, NamedTuple, overload, Generic, TypeVar
 
 from jaxtyping import Float, Bool, Real
 import numpy as np
-from numpy.random.mtrand import f
 import torch
 from torch.utils.data.dataloader import default_collate
 
@@ -328,8 +327,8 @@ class Serializable(NamedTuple, Generic[T]):
 class SerializeFn(Serializable[Callable]):
     ...
 
-default_serialize_pt_fn = lambda x: x.view(x.shape[0], -1).numpy().view(np.uint8)
-default_serialize_np_fn = lambda x: x.reshape(x.shape[0], -1).view(np.uint8)
+def default_serialize_pt_fn(x): x.view(x.shape[0], -1).numpy().view(np.uint8)
+def default_serialize_np_fn(x): x.reshape(x.shape[0], -1).view(np.uint8)
 serialize_fn = SerializeFn(
     obs=default_serialize_np_fn,
     reward=default_serialize_np_fn,
