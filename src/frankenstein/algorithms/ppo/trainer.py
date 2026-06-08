@@ -594,7 +594,7 @@ class FeedforwardPPOTrainer(PPOTrainer[FeedforwardModel]):
                 episode_reward += reward
 
                 history.append_obs(
-                        obs, reward, done,
+                        obs, reward, terminated, truncated,
                 )
 
                 if done.any():
@@ -711,7 +711,7 @@ def compute_recurrent_model_output(
 
     obs = history.obs
     action = history.action
-    dones = history.terminated & history.terminated
+    dones = history.terminated | history.truncated
     misc = history.misc
     assert isinstance(misc,dict)
     hidden = misc['hidden']
@@ -863,7 +863,7 @@ class RecurrentPPOTrainer(PPOTrainer[RecurrentModel]):
                 episode_reward += reward
 
                 history.append_obs(
-                        obs, reward, done,
+                        obs, reward, terminated, truncated,
                         misc = {'hidden': hidden, 't': episode_steps.copy()}
                 )
 
