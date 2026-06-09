@@ -325,7 +325,7 @@ def compute_loss_intermediates(
     n = len(history.obs_history)
 
     with torch.no_grad():
-        mo= compute_model_output_fn(
+        mo = compute_model_output_fn(
             history = history,
             model = model,
             action_dist_fn = action_dist_fn,
@@ -737,7 +737,7 @@ def compute_recurrent_model_output(
             model_output.append(mo)
         model_output = default_collate(model_output)
     else:
-        model_output = model.forward_sequence(to_tensor(obs, device), hidden=curr_hidden)
+        model_output = model.forward_sequence(to_tensor(obs, device), hidden=curr_hidden, dones=dones)
         curr_hidden = model_output['hidden']
 
     assert 'value' in model_output
@@ -976,4 +976,247 @@ class RecurrentPPOTrainer(PPOTrainer[RecurrentModel]):
                 clip_vf_loss = self.config('clip_vf_loss'),
                 action_dist_fn = self._action_dist_fn,
                 compute_model_output_fn = compute_recurrent_model_output,
+        )
+
+##################################################
+# Sequence PPO
+
+
+def compute_sequence_model_output(
+        history : VecHistoryBuffer,
+        model : FeedforwardModel,
+        action_dist_fn : Callable,
+    ):
+
+    obs = history.obs
+    action = history.action
+    dones = history.terminated | history.truncated
+
+    device = next(model.parameters()).device
+    n = len(history.obs_history)
+
+    model_output = model.forward_sequence(to_tensor(obs, device), hidden=None, dones=dones)
+
+    assert 'value' in model_output
+    state_values = model_output['value'].squeeze(-1)
+    action_dist, action_dist_log_prob = action_dist_fn(model_output,n-1)
+    log_action_probs = action_dist_log_prob(action)
+
+    return {
+        'model_output': model_output,
+        'state_values': state_values,
+        'action_dist': action_dist,
+        'action_dist_log_prob': action_dist_log_prob,
+        'log_action_probs': log_action_probs,
+    }
+
+
+class SequencePPOTrainer(PPOTrainer[FeedforwardModel]):
+    def train(self, max_transitions: int | None = None, callbacks: PPOCallbacks = DEFAULT_PPO_CALLBACKS, checkpoint: Checkpoint | None = None):
+        if checkpoint is None:
+            checkpoint = NullCheckpoint()
+
+        callbacks.on_start(locals())
+
+        num_envs = self.env.num_envs
+        rollout_length = self.config('rollout_length')
+
+        history = VecHistoryBuffer(
+                num_envs = num_envs,
+                max_len=rollout_length * 2,
+                device=self.device)
+
+        episode_reward = np.zeros(num_envs)
+        episode_steps = np.zeros(num_envs)
+
+        obs, info = self.env.reset()
+        history.append_obs(
+                #{k:v for k,v in obs.items() if k not in obs_ignore},
+                obs,
+                misc = {'t': episode_steps.copy()},
+        )
+
+        ##################################################
+        # Warmup
+        # The state of all environments are similar at the start of an episode. By warming up, we increase the diversity of states to something that is closer to iid.
+
+        if self.config('warmup_steps') > 0:
+            callbacks.on_warmup_start(locals())
+
+        start_time = time.time()
+        warmup_episode_rewards = defaultdict(lambda: [])
+        warmup_episode_steps = defaultdict(lambda: [])
+        for _ in range(self.config('warmup_steps')):
+            # Select action
+            with torch.no_grad():
+                model_output = self.model(to_tensor(history.obs[-rollout_length:], self.device))
+                action_dist, _ = self._action_dist_fn(model_output)
+                action = action_dist.sample().cpu().numpy()
+
+            # Step environment
+            obs, reward, terminated, truncated, info = self.env.step(action) # type: ignore
+            done = terminated | truncated
+
+            history.append_action(action)
+            episode_reward += reward
+            episode_steps += 1
+
+            history.append_obs(
+                    obs, reward, terminated, truncated,
+                    misc = {'t': episode_steps.copy()}
+            )
+
+            if done.any():
+                # Reset episode stats
+                episode_reward[done] = 0
+                episode_steps[done] = -1 # -1 accounts for the "step" between termination and resetting
+
+        if self.config('warmup_steps') > 0:
+            print(f'Warmup time: {time.time() - start_time:.2f} s')
+            callbacks.on_warmup_end(locals())
+
+        ##################################################
+        # Start training
+        callbacks.on_training_start(locals())
+
+        num_epochs = self.config('num_epochs')
+        rollout_length = self.config('rollout_length')
+
+        start_step = checkpoint.start_step // (num_envs * rollout_length)
+        transition_count = checkpoint.start_step
+        for step in itertools.count(start_step):
+            transition_count = step * num_envs * rollout_length
+            checkpoint.save(transition_count)
+
+            if max_transitions is not None and transition_count >= max_transitions:
+                break
+
+            callbacks.on_step_start(locals())
+
+            # Gather data
+            callbacks.on_gather_start(locals())
+            episode_rewards = [] # For multitask weighing purposes
+            for _ in range(rollout_length):
+                # Select action
+                with torch.no_grad():
+                    model_output = self.model(to_tensor(history.obs[-rollout_length:], self.device))
+                    action_dist, _ = self._action_dist_fn(model_output)
+                    action = action_dist.sample().cpu().numpy()
+
+                # Step environment
+                obs, reward, terminated, truncated, info = self.env.step(action) # type: ignore
+                done = terminated | truncated
+
+                callbacks.on_transition(locals())
+
+                history.append_action(action)
+                episode_steps += 1
+                episode_reward += reward
+
+                history.append_obs(
+                        obs, reward, terminated, truncated,
+                        misc = {'t': episode_steps.copy()}
+                )
+
+                if done.any():
+                    callbacks.on_episode_end(locals())
+                    # Save episode rewards
+                    for r in episode_reward[done]:
+                        episode_rewards.append(r)
+                    # Reset episode stats
+                    episode_reward[done] = 0
+                    episode_steps[done] = -1 # -1 accounts for the "step" between termination and resetting
+            callbacks.on_gather_end(locals())
+
+            # Train
+            interm = self.compute_loss_intermediates(
+                    history = history,
+            )
+            state_dict = None
+            num_transitions = num_envs * rollout_length
+            num_transitions_clipped = num_transitions // num_epochs * num_epochs
+            minibatch_indices = torch.randperm(num_transitions)[:num_transitions_clipped].reshape(num_epochs, -1)
+            for epoch in range(num_epochs):
+                losses = self.compute_ppo_losses(
+                        history = history,
+                        intermediate_values = interm,
+                )
+
+                # If we surpass the KL target, return to the last known weights that did not surpass the KL target
+                t_kl = self.config('target_kl')
+                if t_kl is not None:
+                    if losses['approx_kl'] > t_kl:
+                        if state_dict is not None:
+                            self.model.load_state_dict(state_dict[0])
+                            self.optimizer.load_state_dict(state_dict[1])
+                        break
+                    if self.config('backtrack'):
+                        state_dict = (
+                            self.model.state_dict(),
+                            self.optimizer.state_dict(),
+                        )
+
+                vf_loss_coeff = self.config('vf_loss_coeff')
+                entropy_loss_coeff = self.config('entropy_loss_coeff')
+
+                # Select a batch of data and perform a gradient step
+                idx = minibatch_indices[epoch,:]
+                loss_pi = losses['loss_pi'].flatten()[idx].mean()
+                loss_vf = losses['loss_vf'].flatten()[idx].mean()
+                loss_entropy = losses['loss_entropy'].flatten()[idx].mean()
+
+                loss = loss_pi + vf_loss_coeff * loss_vf + entropy_loss_coeff * loss_entropy
+
+                if not torch.isfinite(loss):
+                    raise ValueError('Invalid loss computed')
+
+                self.optimizer.zero_grad()
+                loss.backward()
+                if self.config('max_grad_norm') is not None:
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config('max_grad_norm'))
+                self.optimizer.step()
+
+                callbacks.on_epoch_end(locals())
+
+            if self.scheduler is not None:
+                self.scheduler.step()
+
+            callbacks.on_gradients_end(locals())
+
+            # Clear data
+            history.clear()
+            episode_rewards = []
+
+        if transition_count != checkpoint.start_step:
+            checkpoint.save(transition_count, force=True)
+
+        callbacks.on_end(locals())
+
+    def compute_loss_intermediates(
+            self,
+            history : VecHistoryBuffer,
+        ) -> IntermediateValues:
+            return compute_loss_intermediates(
+                    history = history,
+                    model = self.model,
+                    discount = self.config('discount'),
+                    gae_lambda = self.config('gae_lambda'),
+                    norm_adv = self.config('norm_adv'),
+                    action_dist_fn = self._action_dist_fn,
+                    compute_model_output_fn = compute_sequence_model_output,
+            )
+
+    def compute_ppo_losses(
+            self,
+            history : VecHistoryBuffer,
+            intermediate_values : IntermediateValues,
+            ):
+        return compute_ppo_losses(
+                history = history,
+                model = self.model,
+                intermediate_values = intermediate_values,
+                clip_pg_ratio = self.config('clip_pg_ratio'),
+                clip_vf_loss = self.config('clip_vf_loss'),
+                action_dist_fn = self._action_dist_fn,
+                compute_model_output_fn = compute_sequence_model_output,
         )

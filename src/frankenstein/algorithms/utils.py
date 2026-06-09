@@ -176,6 +176,10 @@ def format_rate(num, unit_singular, unit_plural, time_diff):
 class Model(torch.nn.Module):
     def forward(self, *inputs):
         raise NotImplementedError()
+    def forward_sequence(self, *inputs, hidden, dones):
+        raise NotImplementedError()
+    def forward_step(self, *inputs, hidden):
+        raise NotImplementedError()
 
 
 class FeedforwardModel(Model):
@@ -186,7 +190,7 @@ class RecurrentModel(Model):
     def __init__(self):
         super().__init__()
 
-    def forward_sequence(self, *inputs, hidden):
+    def forward_sequence(self, *inputs, hidden, dones):
         raise NotImplementedError()
 
     def forward_step(self, *inputs, hidden):

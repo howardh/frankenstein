@@ -133,28 +133,20 @@ class ListBackedVecHistoryBuffer():
         assert len(obs_history) == len(action_history)+1
         action_history.append(action)
 
-    def clear(self, fullclear: bool = False) -> None:
+    def clear(self, num_keep: int = 1) -> None:
         """
         Clear the history buffer.
 
         Args:
-            fullclear: If `True`, clear everything. Otherwise, keep the last element in the buffer. defaults to `False`.
+            num_keep: The number of most recent data point (observation, reward, terminated, truncated, and action) to keep. Defaults to 1, meaning that we keep the most recent transition without the next observation.
         """
-        if fullclear:
-            self.obs_history = []
-            self.action_history = []
-            self.reward_history = []
-            self.terminated_history = []
-            self.truncated_history = []
-            self.misc_history = []
-        else:
-            i = len(self.obs_history)-1
-            self.obs_history = self.obs_history[i:]
-            self.reward_history = self.reward_history[i:]
-            self.terminated_history = self.terminated_history[i:]
-            self.truncated_history = self.truncated_history[i:]
-            self.action_history = self.action_history[i:]
-            self.misc_history = self.misc_history[i:]
+        i = len(self.obs_history)-num_keep
+        self.obs_history = self.obs_history[i:]
+        self.reward_history = self.reward_history[i:]
+        self.terminated_history = self.terminated_history[i:]
+        self.truncated_history = self.truncated_history[i:]
+        self.action_history = self.action_history[i:]
+        self.misc_history = self.misc_history[i:]
 
     @property
     def num_transitions(self):
@@ -542,24 +534,26 @@ class NumpyBackedVecHistoryBuffer():
         self._insert_index = (self._insert_index + 1) % self.max_len
         self._num_rows = min(self._num_rows + 1, self.max_len)
 
-    def clear(self, fullclear: bool = False) -> None:
-        if fullclear:
+    def clear(self, num_keep: int = 1) -> None:
+        if num_keep == 0:
             self._insert_index = 0
             self._incomplete_row = False
             self._num_rows = 0
-        else:
+        elif num_keep == 1:
             last_row_index = (self._insert_index - 1) % self.max_len
 
-            self.obs_history[0,:] = self.obs_history[last_row_index,:]
-            self.action_history[0,:] = self.action_history[last_row_index,:]
-            self.reward_history[0,:] = self.reward_history[last_row_index,:]
+            self.obs_history[0,:] = self.obs_history[last_row_index,:] # type: ignore
+            self.action_history[0,:] = self.action_history[last_row_index,:] # type: ignore
+            self.reward_history[0,:] = self.reward_history[last_row_index,:] # type: ignore
             self.terminated_history[0,:] = self.terminated_history[last_row_index,:]
             self.truncated_history[0,:] = self.truncated_history[last_row_index,:]
-            self.misc_history[0,:] = self.misc_history[last_row_index,:]
+            self.misc_history[0,:] = self.misc_history[last_row_index,:] # type: ignore
 
             self._insert_index = 1
             self._incomplete_row = False
             self._num_rows = 1
+        else:
+            raise NotImplementedError()
 
     def _get_dones(self):
         """ Get a boolean array of shape (num_rows, num_envs) indicating which transitions are done (terminated or truncated). This array is shifted such that the value at index i corresponds to the i-th oldest transition. """
